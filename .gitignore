@@ -1,0 +1,13 @@
+.vs/
+.idea/
+bin/
+obj/
+artifacts/
+TestResults/
+*.user
+*.suo
+*.log
+*.tmp
+*.download
+docs/images/settings-general.png
+docs/images/settings-power.png

@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Read version
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid release tag '$env:GITHUB_REF_NAME'." }
+          "VERSION=$version" >> $env:GITHUB_ENV
+      - name: Test
+        run: dotnet test .\VictusModeSwitch.slnx -c Release
+      - name: Publish self-contained app
+        shell: pwsh
+        run: |
+          dotnet publish .\VictusModeSwitch.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:Version=$env:VERSION `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:PublishReadyToRun=false `
+            -p:DebugType=embedded `
+            -o .\artifacts\publish
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build installer and checksum
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" .\installer\VictusModeSwitch.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
+          $installer = '.\artifacts\VictusModeSwitch-Setup.exe'
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  VictusModeSwitch-Setup.exe" | Set-Content "$installer.sha256" -Encoding ascii
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create $env:GITHUB_REF_NAME
+          .\artifacts\VictusModeSwitch-Setup.exe
+          .\artifacts\VictusModeSwitch-Setup.exe.sha256
+          --title "Victus Mode Switch $env:VERSION"
+          --generate-notes

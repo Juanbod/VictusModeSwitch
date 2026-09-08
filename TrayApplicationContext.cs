@@ -1,0 +1,418 @@
+using System.Diagnostics;
+using Microsoft.Win32;
+
+namespace VictusModeSwitch;
+
+internal sealed class TrayApplicationContext : ApplicationContext
+{
+    private readonly AppSettingsStore _store = new();
+    private readonly ModeController _controller;
+    private readonly UpdateService _updateService = new();
+    private readonly OmenKeyListener _keyListener = new();
+    private readonly OmenPressSequence _pressSequence = new();
+    private readonly NotifyIcon _notifyIcon = new();
+    private readonly Control _dispatcher = new();
+    private readonly ContextMenuStrip _menu = new();
+    private readonly ToolStripMenuItem _ecoItem;
+    private readonly ToolStripMenuItem _standardItem;
+    private readonly ToolStripMenuItem _performanceItem;
+    private readonly ToolStripMenuItem _maxFanItem = new();
+    private readonly ToolStripMenuItem _settingsItem = new();
+    private readonly ToolStripMenuItem _updatesItem = new();
+    private readonly ToolStripMenuItem _openLogItem = new();
+    private readonly ToolStripMenuItem _exitItem = new();
+    private readonly System.Windows.Forms.Timer _startupTimer = new() { Interval = 1200 };
+    private readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 9000 };
+    private readonly System.Threading.Timer _cleanupTimer;
+    private readonly EventWaitHandle _openSettingsEvent;
+    private readonly RegisteredWaitHandle _openSettingsWait;
+    private Localizer _localizer;
+    private Icon? _currentIcon;
+    private ModeToastForm? _toast;
+    private SettingsForm? _settingsForm;
+    private UpdateDialog? _updateDialog;
+    private bool _exiting;
+    private bool _updateBusy;
+
+    public TrayApplicationContext()
+    {
+        _controller = new ModeController(_store);
+        _localizer = new Localizer(_store.Settings.Language);
+        _cleanupTimer = new(
+            _ => UpdateService.CleanupDownloads(),
+            null,
+            TimeSpan.FromSeconds(30),
+            Timeout.InfiniteTimeSpan);
+        _dispatcher.CreateControl();
+        _openSettingsEvent = new EventWaitHandle(
+            false,
+            EventResetMode.AutoReset,
+            Program.OpenSettingsEventName);
+        _openSettingsWait = ThreadPool.RegisterWaitForSingleObject(
+            _openSettingsEvent,
+            (_, _) => QueueOpenSettings(),
+            null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
+
+        _ecoItem = CreateModeItem(AppMode.Eco);
+        _standardItem = CreateModeItem(AppMode.Standard);
+        _performanceItem = CreateModeItem(AppMode.Performance);
+        _maxFanItem.Click += async (_, _) => await ToggleMaxFanAsync(showToast: false);
+        _settingsItem.Click += (_, _) => OpenSettings(SettingsPage.General);
+        _updatesItem.Click += async (_, _) => await CheckForUpdatesAsync(showUpToDate: true);
+        _openLogItem.Click += OpenLog;
+        _exitItem.Click += (_, _) => ExitThread();
+
+        _menu.Font = WindowsTheme.Font(9f);
+        _menu.Opening += (_, _) =>
+        {
+            ApplyMenuTheme();
+            WindowsTheme.ApplyNativeWindow(_menu.Handle);
+        };
+        _menu.Items.AddRange(new ToolStripItem[]
+        {
+            _ecoItem,
+            _standardItem,
+            _performanceItem,
+            new ToolStripSeparator(),
+            _maxFanItem,
+            new ToolStripSeparator(),
+            _settingsItem,
+            _updatesItem,
+            _openLogItem,
+            new ToolStripSeparator(),
+            _exitItem
+        });
+
+        _notifyIcon.ContextMenuStrip = _menu;
+        _notifyIcon.Text = "Victus Mode Switch";
+        _notifyIcon.Visible = true;
+        _notifyIcon.DoubleClick += (_, _) => OpenSettings(SettingsPage.General);
+        ApplyMenuTheme();
+        UpdateLocalizedText();
+        UpdateUi();
+
+        _startupTimer.Tick += ReapplyAfterStartup;
+        _updateTimer.Tick += CheckUpdatesAfterStartup;
+        _keyListener.OmenKeyPressed += OnOmenKeyPressed;
+        _pressSequence.GestureRecognized += OnGestureRecognized;
+        _keyListener.Start();
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        Log.Info(
+            $"Victus Mode Switch {AppVersion.Display} запущен, режим: {_controller.CurrentMode}, " +
+            $"Max Fan: {_controller.MaxFanEnabled}, Power tuning: {_store.Settings.PowerTuning.Enabled}");
+        _startupTimer.Start();
+    }
+
+    protected override void ExitThreadCore()
+    {
+        if (_exiting)
+        {
+            return;
+        }
+
+        _exiting = true;
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        _keyListener.OmenKeyPressed -= OnOmenKeyPressed;
+        _pressSequence.GestureRecognized -= OnGestureRecognized;
+        _keyListener.Dispose();
+        _pressSequence.Dispose();
+        _startupTimer.Stop();
+        _startupTimer.Dispose();
+        _updateTimer.Stop();
+        _updateTimer.Dispose();
+        _cleanupTimer.Dispose();
+        _openSettingsWait.Unregister(null);
+        _openSettingsEvent.Dispose();
+        _toast?.Close();
+        _settingsForm?.Close();
+        _updateDialog?.Close();
+        _notifyIcon.Visible = false;
+        _notifyIcon.Dispose();
+        _menu.Dispose();
+        _currentIcon?.Dispose();
+        _dispatcher.Dispose();
+        Log.Info("Victus Mode Switch остановлен");
+        base.ExitThreadCore();
+    }
+
+    private ToolStripMenuItem CreateModeItem(AppMode mode)
+    {
+        var item = new ToolStripMenuItem();
+        item.Click += async (_, _) => await ApplyModeAsync(mode, showToast: false);
+        return item;
+    }
+
+    private void OnOmenKeyPressed()
+    {
+        if (!_dispatcher.IsDisposed)
+        {
+            _dispatcher.BeginInvoke(new Action(_pressSequence.RegisterPress));
+        }
+    }
+
+    private void QueueOpenSettings()
+    {
+        if (_dispatcher.IsDisposed || _exiting)
+        {
+            return;
+        }
+
+        try
+        {
+            _dispatcher.BeginInvoke(new Action(() => OpenSettings(SettingsPage.General)));
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
+        {
+            // The tray process is shutting down.
+        }
+    }
+
+    private async void OnGestureRecognized(OmenGesture gesture)
+    {
+        Log.Info($"Распознан жест OMEN key: {gesture}");
+        switch (gesture)
+        {
+            case OmenGesture.SinglePress:
+                await ApplyModeAsync(_controller.CurrentMode.TogglePerformance());
+                break;
+            case OmenGesture.DoublePress:
+                await ToggleMaxFanAsync();
+                break;
+            case OmenGesture.TriplePress:
+                await ApplyModeAsync(AppMode.Eco);
+                break;
+        }
+    }
+
+    private async void OnPowerModeChanged(object sender, PowerModeChangedEventArgs eventArgs)
+    {
+        if (eventArgs.Mode != PowerModes.Resume)
+        {
+            return;
+        }
+
+        await Task.Delay(2500);
+        if (!_dispatcher.IsDisposed)
+        {
+            _dispatcher.BeginInvoke(new Action(async () =>
+                await ApplyModeAsync(_controller.CurrentMode, reapply: true, showToast: false)));
+        }
+    }
+
+    private async Task ApplyModeAsync(AppMode mode, bool reapply = false, bool showToast = true)
+    {
+        var result = await _controller.ApplyAsync(mode, reapply);
+        if (!result.Success)
+        {
+            _notifyIcon.ShowBalloonTip(
+                3500,
+                "Victus Mode Switch",
+                result.Warnings.FirstOrDefault() ?? _localizer["ModeError"],
+                ToolTipIcon.Error);
+            return;
+        }
+
+        UpdateUi();
+        _settingsForm?.BeginInvoke(new Action(() => _settingsForm?.Invalidate(true)));
+        if (showToast && _store.Settings.ShowNotifications)
+        {
+            _toast?.Close();
+            _toast = ModeToastForm.ForMode(result.Mode, result.Warnings, _localizer);
+            _toast.Show();
+        }
+    }
+
+    private async Task ToggleMaxFanAsync(bool showToast = true)
+    {
+        var result = await _controller.ToggleMaxFanAsync();
+        if (!result.Success)
+        {
+            _notifyIcon.ShowBalloonTip(
+                3500,
+                "Victus Mode Switch",
+                result.Warnings.FirstOrDefault() ?? _localizer["FanError"],
+                ToolTipIcon.Error);
+            return;
+        }
+
+        UpdateUi();
+        if (showToast && _store.Settings.ShowNotifications)
+        {
+            _toast?.Close();
+            _toast = ModeToastForm.ForMaxFan(result.Enabled, _localizer);
+            _toast.Show();
+        }
+    }
+
+    private void UpdateUi()
+    {
+        var mode = _controller.CurrentMode;
+        _ecoItem.Checked = mode == AppMode.Eco;
+        _standardItem.Checked = mode == AppMode.Standard;
+        _performanceItem.Checked = mode == AppMode.Performance;
+        _maxFanItem.Checked = _controller.MaxFanEnabled;
+        var tooltip = $"Victus: {_localizer.ModeName(mode)}";
+        if (_controller.MaxFanEnabled)
+        {
+            tooltip += " | Max Fan";
+        }
+
+        _notifyIcon.Text = tooltip[..Math.Min(tooltip.Length, 63)];
+        var nextIcon = AppIcon.Create(mode.AccentColor(), _controller.MaxFanEnabled);
+        _notifyIcon.Icon = nextIcon;
+        _currentIcon?.Dispose();
+        _currentIcon = nextIcon;
+    }
+
+    private void UpdateLocalizedText()
+    {
+        _ecoItem.Text = _localizer.ModeName(AppMode.Eco);
+        _standardItem.Text = _localizer.ModeName(AppMode.Standard);
+        _performanceItem.Text = _localizer.ModeName(AppMode.Performance);
+        _maxFanItem.Text = _localizer["MaxFan"];
+        _settingsItem.Text = _localizer["Settings"];
+        _updatesItem.Text = _localizer["CheckUpdates"];
+        _openLogItem.Text = _localizer["OpenLog"];
+        _exitItem.Text = _localizer["Exit"];
+    }
+
+    private async void ReapplyAfterStartup(object? sender, EventArgs eventArgs)
+    {
+        _startupTimer.Stop();
+        await ApplyModeAsync(_controller.CurrentMode, reapply: true, showToast: false);
+        _updateTimer.Start();
+    }
+
+    private async void CheckUpdatesAfterStartup(object? sender, EventArgs eventArgs)
+    {
+        _updateTimer.Stop();
+        if (!_store.Settings.CheckForUpdates ||
+            _store.Settings.LastUpdateCheckUtc is { } checkedAt &&
+            DateTimeOffset.UtcNow - checkedAt < TimeSpan.FromDays(1))
+        {
+            return;
+        }
+
+        await CheckForUpdatesAsync(showUpToDate: false);
+    }
+
+    private async Task CheckForUpdatesAsync(bool showUpToDate)
+    {
+        if (_updateBusy)
+        {
+            return;
+        }
+
+        _updateBusy = true;
+        _updatesItem.Enabled = false;
+        try
+        {
+            var result = await _updateService.CheckAsync();
+            _store.Settings.LastUpdateCheckUtc = DateTimeOffset.UtcNow;
+            _store.Save();
+            if (result.Status == UpdateCheckStatus.Available && result.Update is not null)
+            {
+                ShowUpdateDialog(result.Update);
+            }
+            else if (showUpToDate && result.Status == UpdateCheckStatus.UpToDate)
+            {
+                _notifyIcon.ShowBalloonTip(2500, "Victus Mode Switch", _localizer["UpToDate"], ToolTipIcon.Info);
+            }
+            else if (showUpToDate && result.Status == UpdateCheckStatus.Failed)
+            {
+                _notifyIcon.ShowBalloonTip(3500, "Victus Mode Switch", _localizer["UpdateError"], ToolTipIcon.Warning);
+            }
+        }
+        finally
+        {
+            _updateBusy = false;
+            _updatesItem.Enabled = true;
+        }
+    }
+
+    private void ShowUpdateDialog(UpdateInfo update)
+    {
+        if (_updateDialog is not null)
+        {
+            _updateDialog.Activate();
+            return;
+        }
+
+        _updateDialog = new UpdateDialog(update, _localizer);
+        _updateDialog.InstallerStarted += ExitThread;
+        _updateDialog.FormClosed += (_, _) => _updateDialog = null;
+        _updateDialog.Show();
+        _updateDialog.Activate();
+    }
+
+    private void OpenSettings(SettingsPage page)
+    {
+        if (_settingsForm is not null)
+        {
+            if (page == SettingsPage.About)
+            {
+                _settingsForm.ShowAboutPage();
+            }
+
+            _settingsForm.Activate();
+            return;
+        }
+
+        _settingsForm = new SettingsForm(_store, _controller, page);
+        _settingsForm.PreferencesChanged += OnPreferencesChanged;
+        _settingsForm.HardwareStateChanged += UpdateUi;
+        _settingsForm.InstallerStarted += ExitThread;
+        _settingsForm.FormClosed += (_, _) =>
+        {
+            if (_settingsForm is null)
+            {
+                return;
+            }
+
+            _settingsForm.PreferencesChanged -= OnPreferencesChanged;
+            _settingsForm.HardwareStateChanged -= UpdateUi;
+            _settingsForm.InstallerStarted -= ExitThread;
+            _settingsForm = null;
+        };
+        _settingsForm.Show();
+        _settingsForm.Activate();
+    }
+
+    private void OnPreferencesChanged()
+    {
+        _localizer = new Localizer(_store.Settings.Language);
+        UpdateLocalizedText();
+        UpdateUi();
+    }
+
+    private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs eventArgs)
+    {
+        if (_dispatcher.IsDisposed)
+        {
+            return;
+        }
+
+        _dispatcher.BeginInvoke(new Action(() =>
+        {
+            ApplyMenuTheme();
+            UpdateUi();
+        }));
+    }
+
+    private void ApplyMenuTheme() => WindowsMenuTheme.Apply(_menu);
+
+    private static void OpenLog(object? sender, EventArgs eventArgs)
+    {
+        AppPaths.EnsureCreated();
+        if (!File.Exists(AppPaths.LogFile))
+        {
+            File.WriteAllText(AppPaths.LogFile, string.Empty);
+        }
+
+        Process.Start(new ProcessStartInfo(AppPaths.LogFile) { UseShellExecute = true });
+    }
+}

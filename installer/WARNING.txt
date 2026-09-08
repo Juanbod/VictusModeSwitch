@@ -1,0 +1,11 @@
+IMPORTANT HARDWARE WARNING
+
+Victus Mode Switch uses an undocumented HP BIOS WMI interface. It has only been tested on an HP Victus 15-fa0020ua with system board 8A4F and Thermal Policy V0. The app blocks BIOS writes when those identifiers do not match.
+
+This project was developed with AI assistance. Install and use it entirely at your own risk. The author and contributors accept no liability for hardware damage, data loss, instability, warranty consequences, or any other loss.
+
+The installer and release binaries are currently not code-signed. Verify the published SHA-256 checksum before installation.
+
+The elevated scheduled task runs a constrained broker stored under Program Files. It accepts only Eco, Standard, Performance, and Max Fan requests; the normal tray application does not run with administrator rights.
+
+The optional installer task pauses OMEN Gaming Hub background helpers. Their previous state is saved and restored during uninstall. The HP Omen HSA hardware service is left installed and running.

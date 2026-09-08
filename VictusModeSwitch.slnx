@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="VictusModeSwitch.csproj" />
+  <Project Path="VictusModeSwitch.Tests/VictusModeSwitch.Tests.csproj" />
+</Solution>
