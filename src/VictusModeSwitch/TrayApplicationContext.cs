@@ -10,6 +10,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly UpdateService _updateService = new();
     private readonly OmenKeyListener _keyListener = new();
     private readonly GlobalHotkeyController _globalHotkey = new();
+    private readonly HpServiceSuppressor _hpServiceSuppressor = new();
     private readonly OmenPressSequence _pressSequence = new();
     private readonly NotifyIcon _notifyIcon = new();
     private readonly Control _dispatcher = new();
@@ -106,11 +107,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         _keyListener.Start();
+        _ = SyncHpServiceSuppressionAsync(showError: false);
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         Log.Info(
             $"Victus Mode Switch {AppVersion.Display} запущен, режим: {_controller.CurrentMode}, " +
-            $"Max Fan: {_controller.MaxFanEnabled}, Power tuning: {_store.Settings.PowerTuning.Enabled}");
+            $"Max Fan: {_controller.MaxFanEnabled}, Power tuning: {_store.Settings.PowerTuning.Enabled}, " +
+            $"HP services suppressed: {_store.Settings.SuppressHpAppServices}");
         _startupTimer.Start();
     }
 
@@ -138,6 +141,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _settingsSignalTimer.Tick -= CheckSettingsSignal;
         _settingsSignalTimer.Dispose();
         _cleanupTimer.Dispose();
+        _hpServiceSuppressor.Dispose();
         _openSettingsEvent.Dispose();
         _toast?.Close();
         _settingsForm?.Close();
@@ -432,6 +436,34 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _localizer = new Localizer(_store.Settings.Language);
         UpdateLocalizedText();
         UpdateUi();
+        _ = SyncHpServiceSuppressionAsync(showError: true);
+    }
+
+    private async Task SyncHpServiceSuppressionAsync(bool showError)
+    {
+        HpServiceSuppressionResult result;
+        try
+        {
+            result = await _hpServiceSuppressor
+                .SetEnabledAsync(_store.Settings.SuppressHpAppServices)
+                .ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException) when (_exiting)
+        {
+            return;
+        }
+
+        if (result.Success || !showError || _exiting || _dispatcher.IsDisposed)
+        {
+            return;
+        }
+
+        _dispatcher.BeginInvoke(new Action(() =>
+            _notifyIcon.ShowBalloonTip(
+                4500,
+                "Victus Mode Switch",
+                _localizer["HpServicesError"],
+                ToolTipIcon.Warning)));
     }
 
     private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs eventArgs)

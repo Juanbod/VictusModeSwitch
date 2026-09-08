@@ -31,6 +31,7 @@
 - The settings UI follows the Windows light/dark theme and supports English, Russian, Ukrainian, or the Windows display language.
 - Optional Windows power tuning adjusts CPU, cooling, PCIe, Wi-Fi, and USB power preferences and restores the original values in Standard mode.
 - Optional Eco controls can independently limit the built-in display to 60 Hz, cap NVIDIA globally at 60 FPS, and disable CPU Turbo Boost. All three are off by default and restore the captured values after leaving Eco.
+- An opt-in General setting pauses five optional HP HSA app services while Victus Mode Switch runs and restores only the services it stopped.
 - The built-in updater checks GitHub Releases and verifies the installer SHA-256 checksum before it can run.
 
 Holding the diamond button cannot be detected reliably on the tested laptop. Its firmware emits one WMI pulse without a release or repeat event, so Eco uses a triple press.
@@ -76,7 +77,7 @@ The conservative minimum retained on the tested laptop is:
 - **HP Omen Driver** (`ACPI\HPIC0004`);
 - the NVIDIA display driver, only when the optional 60 FPS limit is used.
 
-If no other HP application is needed, OMEN Gaming Hub, HP Support Solutions Framework, HP Insights/Touchpoint Analytics, and the `HPAppHelperCap`, `HPDiagsCap`, `HPNetworkCap`, `HPOmenCap`, and `HPSysInfoCap` services are not required by Victus Mode Switch. During one measurement those five running helpers used about 206 MB of private memory together. Removing them can disable HP Support Assistant diagnostics or other HP features, Windows Update may reinstall them, and unrelated chipset, ACPI, keyboard, or graphics drivers should not be removed.
+If no other HP application is needed, OMEN Gaming Hub, HP Support Solutions Framework, HP Insights/Touchpoint Analytics, and the `HPAppHelperCap`, `HPDiagsCap`, `HPNetworkCap`, `HPOmenCap`, and `HPSysInfoCap` services are not required by Victus Mode Switch. During measurements those five running helpers used roughly 200 MB of memory together. The **Pause optional HP services** setting stops this fixed allowlist, checks locally every 15 seconds for restarts, and restores only services it captured as running. Disabling them can interrupt HP Support Assistant diagnostics or other HP features. Unrelated chipset, ACPI, keyboard, and graphics drivers remain untouched.
 
 ## Modes
 
@@ -92,7 +93,7 @@ Max Fan can still be toggled independently after entering any mode.
 
 ## Updates and privacy
 
-Automatic checks are enabled by default and run at most once per day against the public GitHub Releases API. There is no telemetry, account, analytics service, background polling loop, or embedded browser. Update installation always requires a user click.
+Automatic checks are enabled by default and run at most once per day against the public GitHub Releases API. There is no telemetry, account, analytics service, network polling loop, or embedded browser. When HP service suppression is enabled, a local status check runs every 15 seconds. Update installation always requires a user click.
 
 For each update the app downloads the installer and checksum from the same GitHub Release, verifies SHA-256, exits fully, verifies the file again in a helper process, and only then starts setup.
 
@@ -103,7 +104,7 @@ For each update the app downloads the installer and checksum from the same GitHu
 - Native Windows `RegisterHotKey` shortcut with repeat suppression; no keyboard hook
 - Per-user tray process with normal privileges
 - Direct Windows display APIs, NVIDIA NVAPI, and Windows power APIs for the optional Eco controls
-- Protected PowerShell broker under `Program Files`, launched without a console window, that accepts only fixed mode/fan requests and runs briefly at highest privileges
+- Protected PowerShell broker under `Program Files`, launched without a console window, that accepts only fixed mode/fan requests and a five-service HP allowlist, then runs briefly at highest privileges
 - Inno Setup per-user installer
 - GitHub Actions build, tests, installer packaging, checksums, and Releases
 
@@ -125,7 +126,7 @@ Requirements: Windows, [.NET 10 SDK](https://dotnet.microsoft.com/download/dotne
 
 ```powershell
 dotnet test .\VictusModeSwitch.slnx -c Release
-.\scripts\Build-Release.ps1 -Version 2.2.0
+.\scripts\Build-Release.ps1 -Version 2.3.0
 ```
 
 Artifacts are written to `artifacts/`. For hardware diagnostics:
@@ -138,7 +139,7 @@ Normal mode switching requires the installer-created protected broker task. Do n
 
 ## Uninstall
 
-Use **Settings > Apps > Installed apps > Victus Mode Switch > Uninstall**. Removal switches to Standard, disables Max Fan, restores captured Windows power, display refresh, NVIDIA frame-limit, and Turbo Boost values, removes the startup entry and elevated BIOS task, and restores saved OMEN background settings. User settings and logs remain in `%LOCALAPPDATA%\VictusModeSwitch` unless removed manually.
+Use **Settings > Apps > Installed apps > Victus Mode Switch > Uninstall**. Removal switches to Standard, disables Max Fan, restores paused HP services and captured Windows power, display refresh, NVIDIA frame-limit, and Turbo Boost values, removes the startup entry and elevated BIOS task, and restores saved OMEN background settings. User settings and logs remain in `%LOCALAPPDATA%\VictusModeSwitch` unless removed manually.
 
 ## License and notice
 

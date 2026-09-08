@@ -61,7 +61,7 @@ try {
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
         -ExecutionTimeLimit ([TimeSpan]::Zero) `
-        -MultipleInstances IgnoreNew `
+        -MultipleInstances Queue `
         -RestartCount 3 `
         -RestartInterval (New-TimeSpan -Minutes 1)
 

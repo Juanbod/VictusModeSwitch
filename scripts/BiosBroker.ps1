@@ -22,7 +22,8 @@ function New-BrokerResultJson {
         [Parameter(Mandatory)]
         [string]$Message,
         [Parameter(Mandatory)]
-        [bool]$MaxFanEnabled
+        [bool]$MaxFanEnabled,
+        [string[]]$AffectedServices = @()
     )
 
     return [ordered]@{
@@ -30,6 +31,7 @@ function New-BrokerResultJson {
         Success = $Success
         Message = $Message
         MaxFanEnabled = $MaxFanEnabled
+        AffectedServices = @($AffectedServices)
     } | ConvertTo-Json -Compress
 }
 
@@ -197,6 +199,74 @@ function Get-MaxFan {
     return $result.Data[0] -ne 0
 }
 
+function Get-ValidatedHpServices {
+    param($RequestedServices)
+
+    $allowed = @(
+        'HPAppHelperCap',
+        'HPDiagsCap',
+        'HPNetworkCap',
+        'HPOmenCap',
+        'HPSysInfoCap'
+    )
+    $requested = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in @($RequestedServices)) {
+        $name = ([string]$entry).Trim()
+        if ([string]::IsNullOrWhiteSpace($name) -or $allowed -notcontains $name) {
+            throw "Unsupported HP service '$name'."
+        }
+        [void]$requested.Add($name)
+    }
+
+    return @($allowed | Where-Object { $requested.Contains($_) })
+}
+
+function Set-HpAppServices {
+    param(
+        [Parameter(Mandatory)]
+        [string[]]$Services,
+        [Parameter(Mandatory)]
+        [bool]$Stop
+    )
+
+    $affected = [Collections.Generic.List[string]]::new()
+    foreach ($name in $Services) {
+        $service = Get-Service -Name $name -ErrorAction SilentlyContinue
+        if ($null -eq $service) {
+            continue
+        }
+
+        try {
+            $service.Refresh()
+            if ($Stop) {
+                if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+                    $service.Stop()
+                    $service.WaitForStatus(
+                        [System.ServiceProcess.ServiceControllerStatus]::Stopped,
+                        [TimeSpan]::FromSeconds(8))
+                    $affected.Add($name)
+                }
+            } elseif ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+                if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+                    $service.WaitForStatus(
+                        [System.ServiceProcess.ServiceControllerStatus]::Stopped,
+                        [TimeSpan]::FromSeconds(8))
+                }
+                $service.Start()
+                $service.WaitForStatus(
+                    [System.ServiceProcess.ServiceControllerStatus]::Running,
+                    [TimeSpan]::FromSeconds(8))
+                $affected.Add($name)
+            }
+        } finally {
+            $service.Dispose()
+        }
+    }
+
+    return $affected.ToArray()
+}
+
 function Invoke-BrokerSelfTest {
     Assert-SupportedHardware
     $previousMaxFan = Get-MaxFan
@@ -251,28 +321,51 @@ try {
         throw 'The BIOS broker request timestamp is outside the allowed window.'
     }
 
-    $mode = ([string]$request.Mode).Trim()
-    if (@('Eco', 'Standard', 'Performance') -notcontains $mode) {
-        throw "Unsupported BIOS mode '$mode'."
+    $operation = if ($request.PSObject.Properties.Name -contains 'Operation') {
+        ([string]$request.Operation).Trim()
+    } else {
+        'ApplyHardware'
     }
-    if ($request.MaxFanEnabled -isnot [bool]) {
-        throw 'The Max Fan request value is invalid.'
-    }
-    $maxFanEnabled = [bool]$request.MaxFanEnabled
+    $actualMaxFan = $false
+    $affectedServices = @()
+    switch ($operation) {
+        'ApplyHardware' {
+            $mode = ([string]$request.Mode).Trim()
+            if (@('Eco', 'Standard', 'Performance') -notcontains $mode) {
+                throw "Unsupported BIOS mode '$mode'."
+            }
+            if ($request.MaxFanEnabled -isnot [bool]) {
+                throw 'The Max Fan request value is invalid.'
+            }
+            $maxFanEnabled = [bool]$request.MaxFanEnabled
 
-    Assert-SupportedHardware
-    Set-FanMode -Mode $mode
-    Set-MaxFan -Enabled $maxFanEnabled
-    $actualMaxFan = Get-MaxFan
-    if ($actualMaxFan -ne $maxFanEnabled) {
-        throw 'The BIOS did not confirm the requested Max Fan state.'
+            Assert-SupportedHardware
+            Set-FanMode -Mode $mode
+            Set-MaxFan -Enabled $maxFanEnabled
+            $actualMaxFan = Get-MaxFan
+            if ($actualMaxFan -ne $maxFanEnabled) {
+                throw 'The BIOS did not confirm the requested Max Fan state.'
+            }
+        }
+        'StopHpServices' {
+            $services = @(Get-ValidatedHpServices -RequestedServices $request.Services)
+            $affectedServices = @(Set-HpAppServices -Services $services -Stop $true)
+        }
+        'StartHpServices' {
+            $services = @(Get-ValidatedHpServices -RequestedServices $request.Services)
+            $affectedServices = @(Set-HpAppServices -Services $services -Stop $false)
+        }
+        default {
+            throw "Unsupported broker operation '$operation'."
+        }
     }
 
     $resultJson = New-BrokerResultJson `
         -Id $requestId `
         -Success $true `
         -Message 'OK' `
-        -MaxFanEnabled $actualMaxFan
+        -MaxFanEnabled $actualMaxFan `
+        -AffectedServices $affectedServices
     $writer.WriteLine($resultJson)
     $exitCode = 0
 } catch {

@@ -134,6 +134,30 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public void AppSettings_KeepsHpServiceSuppressionOptIn()
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>("{}")!;
+
+        settings.Normalize();
+
+        Assert.False(settings.SuppressHpAppServices);
+    }
+
+    [Fact]
+    public void HpServiceSuppressor_FiltersUnknownNamesAndUsesStableOrder()
+    {
+        var services = HpServiceSuppressor.FilterTargetServices(new[]
+        {
+            "NotAnHpService",
+            "HPOmenCap",
+            "hpnetworkcap",
+            "HPOmenCap"
+        });
+
+        Assert.Equal(new[] { "HPNetworkCap", "HPOmenCap" }, services);
+    }
+
+    [Fact]
     public void HotkeyBinding_RequiresModifierAndFormatsCombination()
     {
         var withoutModifier = new HotkeyBinding { VirtualKey = (int)Keys.K }.Normalize();

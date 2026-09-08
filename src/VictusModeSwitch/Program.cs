@@ -79,6 +79,9 @@ internal static class Program
                 case "--windows-tuning" when args.Count > 1:
                     SetWindowsTuning(args[1]);
                     break;
+                case "--restore-hp-services":
+                    RestoreHpServices();
+                    break;
                 case "--export-status" when args.Count > 1:
                     ExportStatus(args[1]);
                     break;
@@ -190,6 +193,16 @@ internal static class Program
         "off" or "0" or "false" => false,
         _ => throw new ArgumentException($"Неизвестное состояние {name} '{value}'.")
     };
+
+    private static void RestoreHpServices()
+    {
+        using var suppressor = new HpServiceSuppressor();
+        var result = suppressor.SetEnabledAsync(false).GetAwaiter().GetResult();
+        if (!result.Success)
+        {
+            throw new InvalidOperationException(result.Message);
+        }
+    }
 
     private static void ShowToast(string value)
     {

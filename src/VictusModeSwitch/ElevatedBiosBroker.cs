@@ -10,6 +10,7 @@ internal sealed class ElevatedBiosBroker
 {
     public const string TaskName = "Victus Mode Switch BIOS";
     private const int MaximumResultLength = 4096;
+    private static readonly SemaphoreSlim TaskGate = new(1, 1);
     private static readonly JsonSerializerOptions JsonOptions = new();
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
@@ -18,10 +19,56 @@ internal sealed class ElevatedBiosBroker
         AppPaths.EnsureCreated();
         var request = new BiosTaskRequest(
             Guid.NewGuid(),
+            ElevatedBrokerOperation.ApplyHardware.ToString(),
             mode.ToString(),
             maxFanEnabled,
+            Array.Empty<string>(),
             DateTimeOffset.UtcNow);
 
+        var result = await RunAsync(request).ConfigureAwait(false);
+        if (result.MaxFanEnabled != maxFanEnabled)
+        {
+            throw new InvalidOperationException("BIOS не подтвердил запрошенное состояние Max Fan.");
+        }
+    }
+
+    public async Task SetHpServicesAsync(bool stop, IEnumerable<string> services)
+    {
+        var filtered = HpServiceSuppressor.FilterTargetServices(services);
+        if (filtered.Count == 0)
+        {
+            return;
+        }
+
+        var operation = stop
+            ? ElevatedBrokerOperation.StopHpServices
+            : ElevatedBrokerOperation.StartHpServices;
+        var request = new BiosTaskRequest(
+            Guid.NewGuid(),
+            operation.ToString(),
+            string.Empty,
+            false,
+            filtered.ToArray(),
+            DateTimeOffset.UtcNow);
+        await RunAsync(request).ConfigureAwait(false);
+    }
+
+    private static async Task<BiosTaskResult> RunAsync(BiosTaskRequest request)
+    {
+        await TaskGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var processLock = await AcquireProcessLockAsync().ConfigureAwait(false);
+            return await RunCoreAsync(request).ConfigureAwait(false);
+        }
+        finally
+        {
+            TaskGate.Release();
+        }
+    }
+
+    private static async Task<BiosTaskResult> RunCoreAsync(BiosTaskRequest request)
+    {
         using var pipe = new NamedPipeServerStream(
             GetPipeName(),
             PipeDirection.InOut,
@@ -38,17 +85,23 @@ internal sealed class ElevatedBiosBroker
             WindowStyle = ProcessWindowStyle.Hidden
         }) ?? throw new InvalidOperationException("Не удалось запустить Планировщик задач Windows.");
 
-        await process.WaitForExitAsync();
+        await process.WaitForExitAsync().ConfigureAwait(false);
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException(
                 $"Windows не запустила BIOS-задачу '{TaskName}', код {process.ExitCode}.");
         }
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var timeoutSeconds = string.Equals(
+            request.Operation,
+            ElevatedBrokerOperation.ApplyHardware.ToString(),
+            StringComparison.Ordinal)
+            ? 8
+            : 30;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
         try
         {
-            await pipe.WaitForConnectionAsync(timeout.Token);
+            await pipe.WaitForConnectionAsync(timeout.Token).ConfigureAwait(false);
             using var writer = new StreamWriter(pipe, Utf8NoBom, bufferSize: 1024, leaveOpen: true)
             {
                 AutoFlush = true
@@ -59,9 +112,9 @@ internal sealed class ElevatedBiosBroker
                 detectEncodingFromByteOrderMarks: false,
                 bufferSize: 1024,
                 leaveOpen: true);
-            await writer.WriteLineAsync(JsonSerializer.Serialize(request, JsonOptions));
+            await writer.WriteLineAsync(JsonSerializer.Serialize(request, JsonOptions)).ConfigureAwait(false);
 
-            var resultJson = await ReadBoundedLineAsync(reader, timeout.Token);
+            var resultJson = await ReadBoundedLineAsync(reader, timeout.Token).ConfigureAwait(false);
             var result = JsonSerializer.Deserialize<BiosTaskResult>(resultJson, JsonOptions)
                 ?? throw new InvalidOperationException("BIOS-задача вернула пустой ответ.");
             if (result.Id != request.Id)
@@ -74,16 +127,13 @@ internal sealed class ElevatedBiosBroker
                 throw new InvalidOperationException(result.Message);
             }
 
-            if (result.MaxFanEnabled != maxFanEnabled)
-            {
-                throw new InvalidOperationException("BIOS не подтвердил запрошенное состояние Max Fan.");
-            }
-
-            return;
+            return result;
         }
         catch (OperationCanceledException exception) when (timeout.IsCancellationRequested)
         {
-            throw new TimeoutException("BIOS-задача не вернула ответ за 8 секунд.", exception);
+            throw new TimeoutException(
+                $"Привилегированная задача не вернула ответ за {timeoutSeconds} секунд.",
+                exception);
         }
     }
 
@@ -94,6 +144,33 @@ internal sealed class ElevatedBiosBroker
         return $"VictusModeSwitch.Bios.{sid.Replace('-', '.')}";
     }
 
+    private static async Task<FileStream> AcquireProcessLockAsync()
+    {
+        AppPaths.EnsureCreated();
+        var deadline = DateTime.UtcNow.AddSeconds(35);
+        while (true)
+        {
+            try
+            {
+                return new FileStream(
+                    AppPaths.BrokerLockFile,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None);
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+            catch (IOException exception)
+            {
+                throw new TimeoutException(
+                    "Другая привилегированная команда не завершилась за 35 секунд.",
+                    exception);
+            }
+        }
+    }
+
     private static async Task<string> ReadBoundedLineAsync(
         StreamReader reader,
         CancellationToken cancellationToken)
@@ -102,7 +179,7 @@ internal sealed class ElevatedBiosBroker
         var buffer = new char[1];
         while (result.Length <= MaximumResultLength)
         {
-            var count = await reader.ReadAsync(buffer.AsMemory(), cancellationToken);
+            var count = await reader.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
             if (count == 0)
             {
                 break;
@@ -127,7 +204,21 @@ internal sealed class ElevatedBiosBroker
 
 internal sealed record BiosTaskRequest(
     Guid Id,
+    string Operation,
     string Mode,
     bool MaxFanEnabled,
+    string[] Services,
     DateTimeOffset CreatedAt);
-internal sealed record BiosTaskResult(Guid Id, bool Success, string Message, bool MaxFanEnabled);
+internal sealed record BiosTaskResult(
+    Guid Id,
+    bool Success,
+    string Message,
+    bool MaxFanEnabled,
+    string[]? AffectedServices);
+
+internal enum ElevatedBrokerOperation
+{
+    ApplyHardware,
+    StopHpServices,
+    StartHpServices
+}

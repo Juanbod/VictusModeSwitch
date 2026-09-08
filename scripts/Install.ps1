@@ -88,6 +88,7 @@ $argumentsMatch = $false
 $workingDirectoryMatches = $false
 $runLevelMatches = $false
 $principalMatches = $false
+$multipleInstancesMatch = $false
 $taskShapeMatches = $false
 $brokerMatches = $false
 $existingTask = Get-ScheduledTask -TaskName $biosTaskName -ErrorAction SilentlyContinue
@@ -134,8 +135,13 @@ if ($null -ne $existingTask) {
         $taskUserSid,
         $userSid,
         [System.StringComparison]::OrdinalIgnoreCase)
+    $multipleInstancesMatch = [string]::Equals(
+        [string]$existingTask.Settings.MultipleInstances,
+        'Queue',
+        [System.StringComparison]::OrdinalIgnoreCase)
     $taskShapeMatches = [bool]$existingTask.Settings.Enabled -and
-        @($existingTask.Triggers | Where-Object { $null -ne $_ }).Count -eq 0
+        @($existingTask.Triggers | Where-Object { $null -ne $_ }).Count -eq 0 -and
+        $multipleInstancesMatch
     $brokerMatches = (Test-Path -LiteralPath $installedBrokerScript -PathType Leaf) -and
         (Test-Path -LiteralPath $installedBrokerLauncher -PathType Leaf) -and
         ((Get-Sha256 -Path $brokerScript) -eq

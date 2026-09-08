@@ -20,6 +20,17 @@ Stop-ScheduledTask -TaskName $trayTaskName -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName $trayTaskName -Confirm:$false -ErrorAction SilentlyContinue
 Get-Process -Name 'VictusModeSwitch' -ErrorAction SilentlyContinue | Stop-Process -Force
 
+if (Test-Path -LiteralPath $executable -PathType Leaf) {
+    $serviceRestore = Start-Process `
+        -FilePath $executable `
+        -ArgumentList '--restore-hp-services' `
+        -Wait `
+        -PassThru
+    if ($serviceRestore.ExitCode -ne 0) {
+        throw "Could not restore paused HP services; exit code $($serviceRestore.ExitCode)."
+    }
+}
+
 $hardwareRestored = Test-Path -LiteralPath $hardwareRestoreMarker -PathType Leaf
 $biosTask = Get-ScheduledTask -TaskName $biosTaskName -ErrorAction SilentlyContinue |
     Where-Object { $_.TaskName -eq $biosTaskName } |

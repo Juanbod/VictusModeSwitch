@@ -33,6 +33,7 @@ internal sealed class SettingsForm : Form
     private readonly Label _modeStatus = new();
     private readonly FluentToggle _maxFanToggle = new();
     private readonly FluentToggle _notificationsToggle = new();
+    private readonly FluentToggle _hpServicesToggle = new();
     private readonly ComboBox _languageCombo = new();
     private readonly Button _hotkeyButton = new();
     private readonly Button _clearHotkeyButton = new();
@@ -66,7 +67,7 @@ internal sealed class SettingsForm : Form
         _localizer = new Localizer(store.Settings.Language);
 
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(900, 680);
+        ClientSize = new Size(900, 760);
         MinimumSize = new Size(780, 580);
         Font = WindowsTheme.Font(9.5f);
         FormBorderStyle = FormBorderStyle.Sizable;
@@ -177,7 +178,7 @@ internal sealed class SettingsForm : Form
     private void BuildGeneralPage()
     {
         ConfigurePage(_generalPage);
-        var layout = NewPageLayout(625);
+        var layout = NewPageLayout(693);
         AddHeader(layout, 0, "GeneralTitle", "GeneralSubtitle");
 
         var quickTitle = NewLabel(11f, FontStyle.Bold);
@@ -211,25 +212,26 @@ internal sealed class SettingsForm : Form
         layout.Controls.Add(new Panel { Dock = DockStyle.Fill, Height = 1, Tag = "separator" }, 0, 4);
         layout.Controls.Add(CreateSettingRow("MaxFan", "FanDescription", _maxFanToggle), 0, 5);
         layout.Controls.Add(CreateSettingRow("Notifications", "NotificationsDescription", _notificationsToggle), 0, 6);
+        layout.Controls.Add(CreateSettingRow("HpServices", "HpServicesDescription", _hpServicesToggle), 0, 7);
 
         _languageCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _languageCombo.FlatStyle = FlatStyle.Flat;
         _languageCombo.Width = 192;
-        layout.Controls.Add(CreateSettingRow("Language", "LanguageDescription", _languageCombo), 0, 7);
+        layout.Controls.Add(CreateSettingRow("Language", "LanguageDescription", _languageCombo), 0, 8);
         layout.Controls.Add(CreateSettingRow(
             "KeyboardShortcut",
             "KeyboardShortcutDescription",
-            CreateHotkeyControl()), 0, 8);
+            CreateHotkeyControl()), 0, 9);
 
         var buttonTitle = NewLabel(11f, FontStyle.Bold);
         buttonTitle.Dock = DockStyle.Fill;
         Register(buttonTitle, "DiamondButton");
-        layout.Controls.Add(buttonTitle, 0, 9);
-        layout.Controls.Add(CreateMappingRow("SinglePress", "ToggleModes"), 0, 10);
-        layout.Controls.Add(CreateMappingRow("DoublePress", "ToggleMaxFan"), 0, 11);
-        layout.Controls.Add(CreateMappingRow("TriplePress", "EnableEco"), 0, 12);
+        layout.Controls.Add(buttonTitle, 0, 10);
+        layout.Controls.Add(CreateMappingRow("SinglePress", "ToggleModes"), 0, 11);
+        layout.Controls.Add(CreateMappingRow("DoublePress", "ToggleMaxFan"), 0, 12);
+        layout.Controls.Add(CreateMappingRow("TriplePress", "EnableEco"), 0, 13);
 
-        SetRows(layout, 80, 32, 48, 24, 1, 68, 68, 68, 72, 38, 42, 42, 42);
+        SetRows(layout, 80, 32, 48, 24, 1, 68, 68, 68, 68, 72, 38, 42, 42, 42);
         _generalPage.Controls.Add(layout);
     }
 
@@ -326,6 +328,8 @@ internal sealed class SettingsForm : Form
         _maxFanToggle.CheckedChanged += async (_, _) => await ChangeMaxFanAsync();
         _notificationsToggle.CheckedChanged += (_, _) => SavePreference(() =>
             _store.Settings.ShowNotifications = _notificationsToggle.Checked);
+        _hpServicesToggle.CheckedChanged += (_, _) => SavePreference(() =>
+            _store.Settings.SuppressHpAppServices = _hpServicesToggle.Checked);
         _languageCombo.SelectedIndexChanged += ChangeLanguage;
         _hotkeyButton.Click += (_, _) => ToggleHotkeyCapture();
         _clearHotkeyButton.Click += (_, _) => SaveHotkey(new HotkeyBinding());
@@ -351,6 +355,7 @@ internal sealed class SettingsForm : Form
         _loading = true;
         ReloadLanguageOptions();
         _notificationsToggle.Checked = _store.Settings.ShowNotifications;
+        _hpServicesToggle.Checked = _store.Settings.SuppressHpAppServices;
         _maxFanToggle.Checked = _controller.MaxFanEnabled;
         _ecoRefreshRateToggle.Checked = _store.Settings.EcoBehavior.LimitDisplayRefreshRate;
         _ecoFrameRateToggle.Checked = _store.Settings.EcoBehavior.LimitNvidiaFrameRate;
@@ -389,6 +394,7 @@ internal sealed class SettingsForm : Form
         _updateStatus.Text = _localizer.Format("Version", AppVersion.Display);
         _toolTip.SetToolTip(_maxFanToggle, _localizer["MaxFan"]);
         _toolTip.SetToolTip(_notificationsToggle, _localizer["Notifications"]);
+        _toolTip.SetToolTip(_hpServicesToggle, _localizer["HpServices"]);
         _toolTip.SetToolTip(_hotkeyButton, _localizer["RecordShortcut"]);
         _toolTip.SetToolTip(_clearHotkeyButton, _localizer["ClearShortcut"]);
         _hotkeyButton.AccessibleName = _localizer["RecordShortcut"];
@@ -439,6 +445,7 @@ internal sealed class SettingsForm : Form
                  {
                      _maxFanToggle,
                      _notificationsToggle,
+                     _hpServicesToggle,
                      _ecoRefreshRateToggle,
                      _ecoFrameRateToggle,
                      _ecoTurboBoostToggle,

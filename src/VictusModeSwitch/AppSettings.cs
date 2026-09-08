@@ -10,6 +10,7 @@ internal sealed class AppSettings
     public string Language { get; set; } = "system";
     public bool ShowNotifications { get; set; } = true;
     public bool CheckForUpdates { get; set; } = true;
+    public bool SuppressHpAppServices { get; set; }
     public DateTimeOffset? LastUpdateCheckUtc { get; set; }
     public HotkeyBinding KeyboardShortcut { get; set; } = new();
     public PowerTuningSettings PowerTuning { get; set; } = new();

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 2.3.0 - 2026-09-08
+
+- Add an opt-in controller that pauses five optional HP HSA app services while Victus Mode Switch runs.
+- Keep the HP Application and HP Omen hardware drivers active for BIOS access and diamond-button events.
+- Check locally every 15 seconds and stop an allowed helper again if another HP app restarts it.
+- Restore only services captured as running before suppression, including recovery after a crash, update, or uninstall.
+- Constrain elevated service operations to a fixed five-service allowlist and keep them console-free.
+- Queue and serialize privileged requests so startup service handling cannot drop a simultaneous BIOS command.
+
 ## 2.2.0 - 2026-09-08
 
 - Add a configurable global keyboard shortcut that mirrors diamond-button single, double, and triple presses.
