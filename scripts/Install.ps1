@@ -38,6 +38,7 @@ $windowsScriptHost = Join-Path $env:SystemRoot 'System32\wscript.exe'
 $expectedTaskArguments = '//B //NoLogo "{0}"' -f $installedBrokerLauncher
 $backgroundKeyPath = 'Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\AD2F1837.OMENCommandCenter_v10z8vjag6ke6'
 $backgroundBackupPath = Join-Path $dataDirectory 'omen-background-backup.json'
+$settingsPath = Join-Path $dataDirectory 'settings.json'
 $omenTaskBackupPath = Join-Path $dataDirectory 'omen-task-backup.json'
 $biosTaskName = 'Victus Mode Switch BIOS'
 $trayTaskName = 'Victus Mode Switch Tray'
@@ -219,12 +220,47 @@ if ($PauseOmen) {
 Stop-ScheduledTask -TaskName $trayTaskName -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName $trayTaskName -Confirm:$false -ErrorAction SilentlyContinue
 
+$startWithWindows = $true
+if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
+    try {
+        $savedSettings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+        $startupProperty = $savedSettings.PSObject.Properties['StartWithWindows']
+        if ($null -ne $startupProperty) {
+            $startWithWindows = [bool]$startupProperty.Value
+        }
+    } catch {
+        Write-Warning "Could not read the saved startup preference: $($_.Exception.Message)"
+    }
+}
+
+$startupApprovedPath = 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
+$startupApprovedKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($startupApprovedPath, $false)
+if ($null -ne $startupApprovedKey) {
+    $startupApprovedValue = $startupApprovedKey.GetValue('VictusModeSwitch')
+    if ($startupApprovedValue -is [byte[]] -and
+        $startupApprovedValue.Length -gt 0 -and
+        $startupApprovedValue[0] -eq 3) {
+        $startWithWindows = $false
+    }
+    $startupApprovedKey.Dispose()
+}
+
 $runKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
-$runKey.SetValue(
-    'VictusModeSwitch',
-    ('"{0}"' -f $executable),
-    [Microsoft.Win32.RegistryValueKind]::String)
+if ($startWithWindows) {
+    $runKey.SetValue(
+        'VictusModeSwitch',
+        ('"{0}"' -f $executable),
+        [Microsoft.Win32.RegistryValueKind]::String)
+} else {
+    $runKey.DeleteValue('VictusModeSwitch', $false)
+}
 $runKey.Dispose()
+
+$startupApprovedKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($startupApprovedPath, $true)
+if ($null -ne $startupApprovedKey) {
+    $startupApprovedKey.DeleteValue('VictusModeSwitch', $false)
+    $startupApprovedKey.Dispose()
+}
 
 if (-not $NoStart) {
     Start-Process -FilePath $executable

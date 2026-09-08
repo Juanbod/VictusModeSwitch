@@ -32,6 +32,8 @@
 
 Чтобы назначить клавиатурную альтернативу, откройте **Настройки > Основное**, нажмите **Не назначено** и введите сочетание с `Ctrl`, `Alt`, `Shift` или `Win`. `Esc` отменяет запись, а кнопка удаления либо `Backspace`/`Delete` без модификаторов очищает хоткей. По умолчанию комбинация не назначена.
 
+Переключатель **Запускать вместе с Windows** на той же странице сразу добавляет или удаляет автозапуск для текущего пользователя. Выбор сохраняется при обновлении и не требует UAC.
+
 ## Установка
 
 1. Скачайте [`VictusModeSwitch-Setup.exe`](https://github.com/Juanbod/VictusModeSwitch/releases/latest/download/VictusModeSwitch-Setup.exe) и файл [`VictusModeSwitch-Setup.exe.sha256`](https://github.com/Juanbod/VictusModeSwitch/releases/latest/download/VictusModeSwitch-Setup.exe.sha256).
@@ -102,7 +104,7 @@ Victus Mode Switch напрямую использует HP WMI-интерфей
 
 ```powershell
 dotnet test .\VictusModeSwitch.slnx -c Release
-.\scripts\Build-Release.ps1 -Version 2.3.0
+.\scripts\Build-Release.ps1 -Version 2.4.0
 ```
 
 Проект не связан с HP и не поддерживается HP. Исходный код распространяется по лицензии [MIT](../LICENSE).

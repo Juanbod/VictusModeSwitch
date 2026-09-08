@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace VictusModeSwitch.Tests;
 
@@ -141,6 +142,67 @@ public sealed class CoreTests
         settings.Normalize();
 
         Assert.False(settings.SuppressHpAppServices);
+    }
+
+    [Fact]
+    public void AppSettings_EnablesWindowsStartupByDefault()
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>("{}")!;
+
+        settings.Normalize();
+
+        Assert.True(settings.StartWithWindows);
+    }
+
+    [Fact]
+    public void StartupController_TogglesIsolatedRegistryEntry()
+    {
+        var root = $@"Software\VictusModeSwitch.Tests\{Guid.NewGuid():N}";
+        var runKeyPath = $@"{root}\Run";
+        var approvedKeyPath = $@"{root}\StartupApproved";
+        var executablePath = Path.Combine(Path.GetTempPath(), "Victus Mode Switch Test.exe");
+        var controller = new StartupController(
+            executablePath,
+            runKeyPath,
+            approvedKeyPath,
+            "StartupTest");
+
+        try
+        {
+            controller.SetEnabled(true);
+            Assert.True(controller.IsEnabled());
+
+            using (var approvedKey = Registry.CurrentUser.CreateSubKey(approvedKeyPath))
+            {
+                approvedKey.SetValue(
+                    "StartupTest",
+                    new byte[] { 3, 0, 0, 0 },
+                    RegistryValueKind.Binary);
+            }
+
+            Assert.False(controller.IsEnabled());
+            controller.SetEnabled(true);
+            Assert.True(controller.IsEnabled());
+
+            controller.SetEnabled(false);
+            Assert.False(controller.IsEnabled());
+        }
+        finally
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(root, throwOnMissingSubKey: false);
+        }
+    }
+
+    [Fact]
+    public void StartupController_RecognizesOnlyCurrentExecutable()
+    {
+        const string executable = @"C:\Apps\Victus Mode Switch\VictusModeSwitch.exe";
+
+        Assert.Equal($"\"{executable}\"", StartupController.BuildCommand(executable));
+        Assert.True(StartupController.CommandTargetsExecutable($"\"{executable}\"", executable));
+        Assert.False(StartupController.CommandTargetsExecutable(
+            "\"C:\\Old\\VictusModeSwitch.exe\"",
+            executable));
     }
 
     [Fact]

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.4.0 - 2026-09-09
+
+- Add a General settings toggle that immediately enables or disables per-user Windows startup without UAC.
+- Reflect startup entries disabled through Windows Task Manager and clear its cached state when re-enabled.
+- Preserve the selected startup behavior across repairs, reinstalls, and automatic updates.
+
 ## 2.3.0 - 2026-09-08
 
 - Add an opt-in controller that pauses five optional HP HSA app services while Victus Mode Switch runs.

@@ -15,6 +15,7 @@ internal sealed class SettingsForm : Form
     private readonly AppSettingsStore _store;
     private readonly ModeController _controller;
     private readonly GlobalHotkeyController? _globalHotkey;
+    private readonly StartupController _startupController = new();
     private readonly UpdateService _updateService = new();
     private readonly ToolTip _toolTip = new();
     private readonly Dictionary<Control, string> _localizedControls = new();
@@ -33,6 +34,7 @@ internal sealed class SettingsForm : Form
     private readonly Label _modeStatus = new();
     private readonly FluentToggle _maxFanToggle = new();
     private readonly FluentToggle _notificationsToggle = new();
+    private readonly FluentToggle _startupToggle = new();
     private readonly FluentToggle _hpServicesToggle = new();
     private readonly ComboBox _languageCombo = new();
     private readonly Button _hotkeyButton = new();
@@ -67,7 +69,7 @@ internal sealed class SettingsForm : Form
         _localizer = new Localizer(store.Settings.Language);
 
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(900, 760);
+        ClientSize = new Size(900, 828);
         MinimumSize = new Size(780, 580);
         Font = WindowsTheme.Font(9.5f);
         FormBorderStyle = FormBorderStyle.Sizable;
@@ -178,7 +180,7 @@ internal sealed class SettingsForm : Form
     private void BuildGeneralPage()
     {
         ConfigurePage(_generalPage);
-        var layout = NewPageLayout(693);
+        var layout = NewPageLayout(761);
         AddHeader(layout, 0, "GeneralTitle", "GeneralSubtitle");
 
         var quickTitle = NewLabel(11f, FontStyle.Bold);
@@ -212,26 +214,27 @@ internal sealed class SettingsForm : Form
         layout.Controls.Add(new Panel { Dock = DockStyle.Fill, Height = 1, Tag = "separator" }, 0, 4);
         layout.Controls.Add(CreateSettingRow("MaxFan", "FanDescription", _maxFanToggle), 0, 5);
         layout.Controls.Add(CreateSettingRow("Notifications", "NotificationsDescription", _notificationsToggle), 0, 6);
-        layout.Controls.Add(CreateSettingRow("HpServices", "HpServicesDescription", _hpServicesToggle), 0, 7);
+        layout.Controls.Add(CreateSettingRow("StartWithWindows", "StartWithWindowsDescription", _startupToggle), 0, 7);
+        layout.Controls.Add(CreateSettingRow("HpServices", "HpServicesDescription", _hpServicesToggle), 0, 8);
 
         _languageCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _languageCombo.FlatStyle = FlatStyle.Flat;
         _languageCombo.Width = 192;
-        layout.Controls.Add(CreateSettingRow("Language", "LanguageDescription", _languageCombo), 0, 8);
+        layout.Controls.Add(CreateSettingRow("Language", "LanguageDescription", _languageCombo), 0, 9);
         layout.Controls.Add(CreateSettingRow(
             "KeyboardShortcut",
             "KeyboardShortcutDescription",
-            CreateHotkeyControl()), 0, 9);
+            CreateHotkeyControl()), 0, 10);
 
         var buttonTitle = NewLabel(11f, FontStyle.Bold);
         buttonTitle.Dock = DockStyle.Fill;
         Register(buttonTitle, "DiamondButton");
-        layout.Controls.Add(buttonTitle, 0, 10);
-        layout.Controls.Add(CreateMappingRow("SinglePress", "ToggleModes"), 0, 11);
-        layout.Controls.Add(CreateMappingRow("DoublePress", "ToggleMaxFan"), 0, 12);
-        layout.Controls.Add(CreateMappingRow("TriplePress", "EnableEco"), 0, 13);
+        layout.Controls.Add(buttonTitle, 0, 11);
+        layout.Controls.Add(CreateMappingRow("SinglePress", "ToggleModes"), 0, 12);
+        layout.Controls.Add(CreateMappingRow("DoublePress", "ToggleMaxFan"), 0, 13);
+        layout.Controls.Add(CreateMappingRow("TriplePress", "EnableEco"), 0, 14);
 
-        SetRows(layout, 80, 32, 48, 24, 1, 68, 68, 68, 68, 72, 38, 42, 42, 42);
+        SetRows(layout, 80, 32, 48, 24, 1, 68, 68, 68, 68, 68, 72, 38, 42, 42, 42);
         _generalPage.Controls.Add(layout);
     }
 
@@ -328,6 +331,7 @@ internal sealed class SettingsForm : Form
         _maxFanToggle.CheckedChanged += async (_, _) => await ChangeMaxFanAsync();
         _notificationsToggle.CheckedChanged += (_, _) => SavePreference(() =>
             _store.Settings.ShowNotifications = _notificationsToggle.Checked);
+        _startupToggle.CheckedChanged += (_, _) => ChangeStartup();
         _hpServicesToggle.CheckedChanged += (_, _) => SavePreference(() =>
             _store.Settings.SuppressHpAppServices = _hpServicesToggle.Checked);
         _languageCombo.SelectedIndexChanged += ChangeLanguage;
@@ -355,6 +359,7 @@ internal sealed class SettingsForm : Form
         _loading = true;
         ReloadLanguageOptions();
         _notificationsToggle.Checked = _store.Settings.ShowNotifications;
+        _startupToggle.Checked = ReadStartupState();
         _hpServicesToggle.Checked = _store.Settings.SuppressHpAppServices;
         _maxFanToggle.Checked = _controller.MaxFanEnabled;
         _ecoRefreshRateToggle.Checked = _store.Settings.EcoBehavior.LimitDisplayRefreshRate;
@@ -394,6 +399,7 @@ internal sealed class SettingsForm : Form
         _updateStatus.Text = _localizer.Format("Version", AppVersion.Display);
         _toolTip.SetToolTip(_maxFanToggle, _localizer["MaxFan"]);
         _toolTip.SetToolTip(_notificationsToggle, _localizer["Notifications"]);
+        _toolTip.SetToolTip(_startupToggle, _localizer["StartWithWindows"]);
         _toolTip.SetToolTip(_hpServicesToggle, _localizer["HpServices"]);
         _toolTip.SetToolTip(_hotkeyButton, _localizer["RecordShortcut"]);
         _toolTip.SetToolTip(_clearHotkeyButton, _localizer["ClearShortcut"]);
@@ -445,6 +451,7 @@ internal sealed class SettingsForm : Form
                  {
                      _maxFanToggle,
                      _notificationsToggle,
+                     _startupToggle,
                      _hpServicesToggle,
                      _ecoRefreshRateToggle,
                      _ecoFrameRateToggle,
@@ -782,6 +789,69 @@ internal sealed class SettingsForm : Form
         change();
         _store.Save();
         PreferencesChanged?.Invoke();
+    }
+
+    private bool ReadStartupState()
+    {
+        try
+        {
+            var enabled = _startupController.IsEnabled();
+            if (_store.Settings.StartWithWindows != enabled)
+            {
+                _store.Settings.StartWithWindows = enabled;
+                _store.Save();
+            }
+
+            return enabled;
+        }
+        catch (Exception exception)
+        {
+            Log.Error("Не удалось прочитать состояние автозапуска", exception);
+            return _store.Settings.StartWithWindows;
+        }
+    }
+
+    private void ChangeStartup()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        var requested = _startupToggle.Checked;
+        var previousPreference = _store.Settings.StartWithWindows;
+        var previousRegistration = previousPreference;
+        try
+        {
+            previousRegistration = _startupController.IsEnabled();
+            _startupController.SetEnabled(requested);
+            _store.Settings.StartWithWindows = requested;
+            _store.Save();
+            PreferencesChanged?.Invoke();
+        }
+        catch (Exception exception)
+        {
+            _store.Settings.StartWithWindows = previousPreference;
+            try
+            {
+                _startupController.SetEnabled(previousRegistration);
+            }
+            catch (Exception rollbackException)
+            {
+                Log.Error("Не удалось откатить изменение автозапуска", rollbackException);
+            }
+
+            Log.Error("Не удалось изменить автозапуск", exception);
+            _loading = true;
+            _startupToggle.Checked = ReadStartupState();
+            _loading = false;
+            MessageBox.Show(
+                this,
+                _localizer["StartupChangeError"],
+                "Victus Mode Switch",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
     }
 
     private async Task CheckForUpdatesAsync()

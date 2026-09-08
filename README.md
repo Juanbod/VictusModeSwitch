@@ -29,6 +29,7 @@
 - A user-defined global keyboard shortcut can mirror the same one-, two-, and three-press gestures.
 - The tray menu provides direct, silent mode selection.
 - The settings UI follows the Windows light/dark theme and supports English, Russian, Ukrainian, or the Windows display language.
+- A General settings toggle controls whether the tray app starts after signing in to Windows; the choice is preserved across updates.
 - Optional Windows power tuning adjusts CPU, cooling, PCIe, Wi-Fi, and USB power preferences and restores the original values in Standard mode.
 - Optional Eco controls can independently limit the built-in display to 60 Hz, cap NVIDIA globally at 60 FPS, and disable CPU Turbo Boost. All three are off by default and restore the captured values after leaving Eco.
 - An opt-in General setting pauses five optional HP HSA app services while Victus Mode Switch runs and restores only the services it stopped.
@@ -126,7 +127,7 @@ Requirements: Windows, [.NET 10 SDK](https://dotnet.microsoft.com/download/dotne
 
 ```powershell
 dotnet test .\VictusModeSwitch.slnx -c Release
-.\scripts\Build-Release.ps1 -Version 2.3.0
+.\scripts\Build-Release.ps1 -Version 2.4.0
 ```
 
 Artifacts are written to `artifacts/`. For hardware diagnostics:
