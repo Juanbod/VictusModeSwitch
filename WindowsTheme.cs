@@ -72,6 +72,24 @@ internal static class WindowsTheme
         ApplyNativeWindow(form.Handle, mica);
     }
 
+    public static void ShowAndActivate(Form form)
+    {
+        if (!form.Visible)
+        {
+            form.Show();
+        }
+
+        if (form.WindowState == FormWindowState.Minimized)
+        {
+            form.WindowState = FormWindowState.Normal;
+        }
+
+        _ = ShowWindow(form.Handle, SwShow);
+        form.BringToFront();
+        form.Activate();
+        _ = SetForegroundWindow(form.Handle);
+    }
+
     public static void ApplyNativeWindow(IntPtr window, bool mica = false)
     {
         if (!OperatingSystem.IsWindowsVersionAtLeast(10))
@@ -158,4 +176,12 @@ internal static class WindowsTheme
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SystemParametersInfo(uint action, uint parameter, out bool value, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr window);
+
+    private const int SwShow = 5;
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr window, int command);
 }

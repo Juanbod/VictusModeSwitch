@@ -25,7 +25,7 @@ internal sealed class ModeController
         try
         {
             var warnings = new List<string>();
-            HardwareInfo.EnsureSupportedBoard();
+            await EnsureSupportedBoardAsync();
 
             var maxFanEnabled = target == AppMode.Eco && !reapply
                 ? false
@@ -63,7 +63,7 @@ internal sealed class ModeController
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            HardwareInfo.EnsureSupportedBoard();
+            await EnsureSupportedBoardAsync();
             await _biosBroker.ApplyAsync(CurrentMode, enabled);
             _store.Settings.MaxFanEnabled = enabled;
             _store.Save();
@@ -147,6 +147,20 @@ internal sealed class ModeController
         if (!applied.Success)
         {
             warnings.Add(applied.Warning);
+        }
+    }
+
+    private static async Task EnsureSupportedBoardAsync()
+    {
+        try
+        {
+            await Task.Run(HardwareInfo.EnsureSupportedBoard);
+        }
+        catch (InvalidCastException)
+        {
+            Log.Warning("Повторная проверка системной платы после временной ошибки WMI");
+            await Task.Delay(50);
+            await Task.Run(HardwareInfo.EnsureSupportedBoard);
         }
     }
 

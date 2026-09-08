@@ -221,7 +221,7 @@ $runKey.SetValue(
 $runKey.Dispose()
 
 if (-not $NoStart) {
-    Start-Process -FilePath $executable -WindowStyle Hidden
+    Start-Process -FilePath $executable
 }
 
 Write-Output "Configured: $executable"

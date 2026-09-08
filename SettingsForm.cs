@@ -151,7 +151,7 @@ internal sealed class SettingsForm : Form
     private void BuildGeneralPage()
     {
         ConfigurePage(_generalPage);
-        var layout = NewPageLayout(527);
+        var layout = NewPageLayout(541);
         AddHeader(layout, 0, "GeneralTitle", "GeneralSubtitle");
 
         var quickTitle = NewLabel(11f, FontStyle.Bold);
@@ -199,7 +199,7 @@ internal sealed class SettingsForm : Form
         layout.Controls.Add(CreateMappingRow("DoublePress", "ToggleMaxFan"), 0, 10);
         layout.Controls.Add(CreateMappingRow("TriplePress", "EnableEco"), 0, 11);
 
-        SetRows(layout, 62, 28, 48, 24, 1, 68, 68, 68, 34, 42, 42, 42);
+        SetRows(layout, 68, 32, 48, 24, 1, 68, 68, 68, 38, 42, 42, 42);
         _generalPage.Controls.Add(layout);
     }
 
@@ -688,7 +688,7 @@ internal sealed class SettingsForm : Form
         var panel = new Panel { Dock = DockStyle.Fill };
         var title = NewLabel(22f);
         title.Dock = DockStyle.Top;
-        title.Height = 38;
+        title.Height = 44;
         Register(title, titleKey);
         var subtitle = NewLabel(9.5f);
         subtitle.Dock = DockStyle.Fill;
@@ -715,11 +715,11 @@ internal sealed class SettingsForm : Form
             Margin = Padding.Empty,
             Padding = new Padding(0, 7, 12, 4)
         };
-        text.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        text.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
         text.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var title = NewLabel(9.5f, FontStyle.Bold);
         title.Dock = DockStyle.Fill;
-        title.TextAlign = ContentAlignment.BottomLeft;
+        title.TextAlign = ContentAlignment.MiddleLeft;
         title.AutoEllipsis = true;
         Register(title, titleKey);
         var description = NewLabel(8.5f);
@@ -749,12 +749,12 @@ internal sealed class SettingsForm : Form
             Margin = Padding.Empty,
             Padding = new Padding(0, 7, 0, 0)
         };
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 1));
         var title = NewLabel(9.5f, FontStyle.Bold);
         title.Dock = DockStyle.Fill;
-        title.TextAlign = ContentAlignment.BottomLeft;
+        title.TextAlign = ContentAlignment.MiddleLeft;
         title.AutoEllipsis = true;
         Register(title, titleKey);
         var description = NewLabel(8.8f);

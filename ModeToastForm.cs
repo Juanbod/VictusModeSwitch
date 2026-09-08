@@ -12,12 +12,19 @@ internal sealed class ModeToastForm : Form
     private readonly System.Windows.Forms.Timer _animationTimer;
     private readonly Stopwatch _phaseClock = new();
     private readonly bool _animationsEnabled = WindowsTheme.AnimationsEnabled;
+    private readonly Label _description;
     private Point _targetLocation;
     private AnimationPhase _phase;
+    private bool _pending;
 
     protected override bool ShowWithoutActivation => true;
 
-    private ModeToastForm(string titleText, string descriptionText, Color accentColor, bool warning)
+    private ModeToastForm(
+        string titleText,
+        string descriptionText,
+        Color accentColor,
+        bool warning,
+        bool pending = false)
     {
         var palette = WindowsTheme.Current;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -46,7 +53,7 @@ internal sealed class ModeToastForm : Form
             Text = titleText
         };
 
-        var description = new Label
+        _description = new Label
         {
             AutoSize = false,
             Font = WindowsTheme.Font(9f),
@@ -56,7 +63,8 @@ internal sealed class ModeToastForm : Form
             Text = descriptionText
         };
 
-        Controls.Add(description);
+        _pending = pending;
+        Controls.Add(_description);
         Controls.Add(title);
         Controls.Add(accent);
 
@@ -97,11 +105,45 @@ internal sealed class ModeToastForm : Form
             mode.AccentColor(),
             warnings.Count != 0);
 
+    public static ModeToastForm ForPendingMode(AppMode mode, Localizer localizer) => new(
+        localizer.ModeName(mode),
+        localizer["ChangingMode"],
+        mode.AccentColor(),
+        false,
+        pending: true);
+
     public static ModeToastForm ForMaxFan(bool enabled, Localizer localizer) => new(
         localizer[enabled ? "MaxFanOn" : "MaxFanOff"],
         localizer[enabled ? "MaxFanOnDescription" : "MaxFanOffDescription"],
         enabled ? Color.FromArgb(0, 120, 212) : Color.FromArgb(105, 105, 105),
         false);
+
+    public static ModeToastForm ForPendingMaxFan(bool enabled, Localizer localizer) => new(
+        localizer[enabled ? "MaxFanOn" : "MaxFanOff"],
+        localizer["ChangingFan"],
+        enabled ? Color.FromArgb(0, 120, 212) : Color.FromArgb(105, 105, 105),
+        false,
+        pending: true);
+
+    public void CompleteMode(AppMode mode, IReadOnlyCollection<string> warnings, Localizer localizer)
+    {
+        _description.Text = warnings.Count == 0
+            ? localizer.ModeDescription(mode)
+            : localizer["PartialMode"];
+        _description.ForeColor = warnings.Count == 0
+            ? WindowsTheme.Current.SecondaryText
+            : Color.FromArgb(196, 117, 0);
+        _pending = false;
+        BeginPhase(AnimationPhase.Holding);
+    }
+
+    public void CompleteMaxFan(bool enabled, Localizer localizer)
+    {
+        _description.Text = localizer[enabled ? "MaxFanOnDescription" : "MaxFanOffDescription"];
+        _description.ForeColor = WindowsTheme.Current.SecondaryText;
+        _pending = false;
+        BeginPhase(AnimationPhase.Holding);
+    }
 
     private void Animate(object? sender, EventArgs eventArgs)
     {
@@ -123,7 +165,7 @@ internal sealed class ModeToastForm : Form
                     break;
                 }
             case AnimationPhase.Holding:
-                if (_phaseClock.ElapsedMilliseconds >= HoldDurationMilliseconds)
+                if (!_pending && _phaseClock.ElapsedMilliseconds >= HoldDurationMilliseconds)
                 {
                     if (_animationsEnabled)
                     {

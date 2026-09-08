@@ -5,9 +5,16 @@ namespace VictusModeSwitch;
 internal static class HardwareInfo
 {
     public const string SupportedBoard = "8A4F";
+    private static string? _cachedBoardProduct;
 
     public static string GetBoardProduct()
     {
+        var cached = Volatile.Read(ref _cachedBoardProduct);
+        if (!string.IsNullOrWhiteSpace(cached))
+        {
+            return cached;
+        }
+
         using var searcher = new ManagementObjectSearcher(
             "root\\cimv2",
             "SELECT Product FROM Win32_BaseBoard");
@@ -16,7 +23,13 @@ internal static class HardwareInfo
         {
             using (board)
             {
-                return Convert.ToString(board["Product"])?.Trim() ?? string.Empty;
+                var product = Convert.ToString(board["Product"])?.Trim() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(product))
+                {
+                    Interlocked.CompareExchange(ref _cachedBoardProduct, product, null);
+                }
+
+                return product;
             }
         }
 

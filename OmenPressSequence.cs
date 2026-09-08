@@ -9,7 +9,7 @@ internal enum OmenGesture
 
 internal sealed class OmenPressSequence : IDisposable
 {
-    private const int GestureWindowMilliseconds = 420;
+    internal const int GestureWindowMilliseconds = 320;
     private readonly System.Windows.Forms.Timer _timer;
     private int _pressCount;
 

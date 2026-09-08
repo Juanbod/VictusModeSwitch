@@ -19,7 +19,7 @@
 
 [Русская версия](docs/README.ru.md)
 
-![Victus Mode Switch general settings](docs/images/settings-general.jpg)
+![Victus Mode Switch general settings](docs/images/settings-general.png)
 
 ## What it does
 
@@ -72,7 +72,7 @@ The optional setup checkbox pauses OMEN Gaming Hub background helpers. OMEN Gami
 
 Max Fan can still be toggled independently after entering any mode.
 
-![Windows power settings](docs/images/settings-power.jpg)
+![Windows power settings](docs/images/settings-power.png)
 
 ## Updates and privacy
 
@@ -97,7 +97,7 @@ Requirements: Windows, [.NET 10 SDK](https://dotnet.microsoft.com/download/dotne
 
 ```powershell
 dotnet test .\VictusModeSwitch.slnx -c Release
-.\scripts\Build-Release.ps1 -Version 2.0.0
+.\scripts\Build-Release.ps1 -Version 2.0.1
 ```
 
 Artifacts are written to `artifacts/`. For hardware diagnostics:

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.1 - 2026-09-08
+
+- Show immediate pending feedback after a diamond-button gesture, then confirm it when the hardware operation finishes.
+- Reduce the multi-press recognition window from 420 ms to 320 ms.
+- Move the local WMI safety check off the UI thread and cache a successful board lookup for faster subsequent switches.
+- Stop launching the tray process with Windows' hidden-window flag, and reliably show, restore, and foreground Settings.
+- Give page and setting headings enough vertical space at scaled DPI so glyphs are not clipped.
+- Replace the compressed documentation screenshots with full-resolution lossless PNG images.
+
 ## 2.0.0 - 2026-09-08
 
 - Reduced the app to Eco, Standard, Performance, Max Fan, tray controls, and diamond-button gestures.

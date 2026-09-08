@@ -23,9 +23,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _exitItem = new();
     private readonly System.Windows.Forms.Timer _startupTimer = new() { Interval = 1200 };
     private readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 9000 };
+    private readonly System.Windows.Forms.Timer _settingsSignalTimer = new() { Interval = 100 };
     private readonly System.Threading.Timer _cleanupTimer;
     private readonly EventWaitHandle _openSettingsEvent;
-    private readonly RegisteredWaitHandle _openSettingsWait;
     private Localizer _localizer;
     private Icon? _currentIcon;
     private ModeToastForm? _toast;
@@ -48,12 +48,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             false,
             EventResetMode.AutoReset,
             Program.OpenSettingsEventName);
-        _openSettingsWait = ThreadPool.RegisterWaitForSingleObject(
-            _openSettingsEvent,
-            (_, _) => QueueOpenSettings(),
-            null,
-            Timeout.Infinite,
-            executeOnlyOnce: false);
+        _settingsSignalTimer.Tick += CheckSettingsSignal;
+        _settingsSignalTimer.Start();
 
         _ecoItem = CreateModeItem(AppMode.Eco);
         _standardItem = CreateModeItem(AppMode.Standard);
@@ -124,8 +120,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _startupTimer.Dispose();
         _updateTimer.Stop();
         _updateTimer.Dispose();
+        _settingsSignalTimer.Stop();
+        _settingsSignalTimer.Tick -= CheckSettingsSignal;
+        _settingsSignalTimer.Dispose();
         _cleanupTimer.Dispose();
-        _openSettingsWait.Unregister(null);
         _openSettingsEvent.Dispose();
         _toast?.Close();
         _settingsForm?.Close();
@@ -154,21 +152,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private void QueueOpenSettings()
+    private void CheckSettingsSignal(object? sender, EventArgs eventArgs)
     {
-        if (_dispatcher.IsDisposed || _exiting)
+        if (_exiting || !_openSettingsEvent.WaitOne(0))
         {
             return;
         }
 
-        try
-        {
-            _dispatcher.BeginInvoke(new Action(() => OpenSettings(SettingsPage.General)));
-        }
-        catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
-        {
-            // The tray process is shutting down.
-        }
+        Log.Info("Получена команда открыть настройки");
+        OpenSettings(SettingsPage.General);
     }
 
     private async void OnGestureRecognized(OmenGesture gesture)
@@ -205,9 +197,19 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private async Task ApplyModeAsync(AppMode mode, bool reapply = false, bool showToast = true)
     {
+        ModeToastForm? pendingToast = null;
+        if (showToast && _store.Settings.ShowNotifications)
+        {
+            _toast?.Close();
+            pendingToast = ModeToastForm.ForPendingMode(mode, _localizer);
+            _toast = pendingToast;
+            pendingToast.Show();
+        }
+
         var result = await _controller.ApplyAsync(mode, reapply);
         if (!result.Success)
         {
+            pendingToast?.Close();
             _notifyIcon.ShowBalloonTip(
                 3500,
                 "Victus Mode Switch",
@@ -218,19 +220,28 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         UpdateUi();
         _settingsForm?.BeginInvoke(new Action(() => _settingsForm?.Invalidate(true)));
-        if (showToast && _store.Settings.ShowNotifications)
+        if (pendingToast is not null && !pendingToast.IsDisposed)
         {
-            _toast?.Close();
-            _toast = ModeToastForm.ForMode(result.Mode, result.Warnings, _localizer);
-            _toast.Show();
+            pendingToast.CompleteMode(result.Mode, result.Warnings, _localizer);
         }
     }
 
     private async Task ToggleMaxFanAsync(bool showToast = true)
     {
-        var result = await _controller.ToggleMaxFanAsync();
+        var requested = !_controller.MaxFanEnabled;
+        ModeToastForm? pendingToast = null;
+        if (showToast && _store.Settings.ShowNotifications)
+        {
+            _toast?.Close();
+            pendingToast = ModeToastForm.ForPendingMaxFan(requested, _localizer);
+            _toast = pendingToast;
+            pendingToast.Show();
+        }
+
+        var result = await _controller.SetMaxFanAsync(requested);
         if (!result.Success)
         {
+            pendingToast?.Close();
             _notifyIcon.ShowBalloonTip(
                 3500,
                 "Victus Mode Switch",
@@ -240,11 +251,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         UpdateUi();
-        if (showToast && _store.Settings.ShowNotifications)
+        if (pendingToast is not null && !pendingToast.IsDisposed)
         {
-            _toast?.Close();
-            _toast = ModeToastForm.ForMaxFan(result.Enabled, _localizer);
-            _toast.Show();
+            pendingToast.CompleteMaxFan(result.Enabled, _localizer);
         }
     }
 
@@ -351,14 +360,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void OpenSettings(SettingsPage page)
     {
-        if (_settingsForm is not null)
+        if (_settingsForm is { IsDisposed: false })
         {
             if (page == SettingsPage.About)
             {
                 _settingsForm.ShowAboutPage();
             }
 
-            _settingsForm.Activate();
+            WindowsTheme.ShowAndActivate(_settingsForm);
+            Log.Info("Окно настроек активировано");
             return;
         }
 
@@ -378,8 +388,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _settingsForm.InstallerStarted -= ExitThread;
             _settingsForm = null;
         };
-        _settingsForm.Show();
-        _settingsForm.Activate();
+        WindowsTheme.ShowAndActivate(_settingsForm);
+        Log.Info("Окно настроек открыто");
     }
 
     private void OnPreferencesChanged()
