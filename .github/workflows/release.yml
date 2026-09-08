@@ -30,7 +30,7 @@ jobs:
       - name: Publish self-contained app
         shell: pwsh
         run: |
-          dotnet publish .\VictusModeSwitch.csproj `
+          dotnet publish .\src\VictusModeSwitch\VictusModeSwitch.csproj `
             -c Release `
             -r win-x64 `
             --self-contained true `

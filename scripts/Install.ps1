@@ -47,7 +47,7 @@ New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
 
 if (-not $ConfigureOnly -and -not $PreflightOnly) {
     if ([string]::IsNullOrWhiteSpace($PublishDirectory)) {
-        $PublishDirectory = Join-Path $PSScriptRoot '..\bin\Release\net10.0-windows\win-x64\publish'
+        $PublishDirectory = Join-Path $PSScriptRoot '..\src\VictusModeSwitch\bin\Release\net10.0-windows\win-x64\publish'
     }
     if (-not (Test-Path -LiteralPath (Join-Path $PublishDirectory 'VictusModeSwitch.exe') -PathType Leaf)) {
         throw "Published application was not found in '$PublishDirectory'."

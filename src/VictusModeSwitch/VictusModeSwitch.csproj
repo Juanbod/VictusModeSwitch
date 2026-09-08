@@ -15,7 +15,7 @@
     <Description>Lightweight performance mode switcher for supported HP Victus laptops.</Description>
     <Authors>Juanbod and contributors</Authors>
     <RepositoryUrl>https://github.com/Juanbod/VictusModeSwitch</RepositoryUrl>
-    <ApplicationIcon>assets\VictusModeSwitch.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\VictusModeSwitch.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,7 +26,4 @@
     <InternalsVisibleTo Include="VictusModeSwitch.Tests" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Remove="VictusModeSwitch.Tests\**\*.cs" />
-  </ItemGroup>
 </Project>

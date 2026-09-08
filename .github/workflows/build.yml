@@ -22,7 +22,7 @@ jobs:
         run: dotnet test .\VictusModeSwitch.slnx -c Release --no-restore
       - name: Publish smoke test
         run: >-
-          dotnet publish .\VictusModeSwitch.csproj
+          dotnet publish .\src\VictusModeSwitch\VictusModeSwitch.csproj
           -c Release
           -r win-x64
           --self-contained true

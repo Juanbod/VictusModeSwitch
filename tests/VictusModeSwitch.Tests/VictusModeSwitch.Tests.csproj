@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\VictusModeSwitch.csproj" />
+    <ProjectReference Include="..\..\src\VictusModeSwitch\VictusModeSwitch.csproj" />
   </ItemGroup>
 
 </Project>

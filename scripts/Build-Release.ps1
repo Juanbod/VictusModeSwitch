@@ -26,7 +26,7 @@ try {
     dotnet test .\VictusModeSwitch.slnx -c Release
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
 
-    dotnet publish .\VictusModeSwitch.csproj `
+    dotnet publish .\src\VictusModeSwitch\VictusModeSwitch.csproj `
         -c Release `
         -r win-x64 `
         --self-contained true `

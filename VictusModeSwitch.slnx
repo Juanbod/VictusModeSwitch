@@ -1,4 +1,8 @@
 <Solution>
-  <Project Path="VictusModeSwitch.csproj" />
-  <Project Path="VictusModeSwitch.Tests/VictusModeSwitch.Tests.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src/VictusModeSwitch/VictusModeSwitch.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VictusModeSwitch.Tests/VictusModeSwitch.Tests.csproj" />
+  </Folder>
 </Solution>
