@@ -17,20 +17,34 @@ try {
     Get-Process -Name 'VictusModeSwitch' -ErrorAction SilentlyContinue | Stop-Process -Force
 
     if (Test-Path -LiteralPath $omenTaskBackupPath) {
-        $omenTaskBackup = @(Get-Content -LiteralPath $omenTaskBackupPath -Raw | ConvertFrom-Json)
+        $omenTaskBackup = Get-Content -LiteralPath $omenTaskBackupPath -Raw | ConvertFrom-Json
         foreach ($entry in $omenTaskBackup) {
-            $omenTask = Get-ScheduledTask -TaskName $entry.TaskName -TaskPath $entry.TaskPath -ErrorAction SilentlyContinue
+            $omenTaskName = [string]$entry.TaskName
+            $omenTaskPath = [string]$entry.TaskPath
+            if ([string]::IsNullOrWhiteSpace($omenTaskName) -or
+                [string]::IsNullOrWhiteSpace($omenTaskPath)) {
+                throw 'The OMEN scheduled-task recovery file contains an invalid entry.'
+            }
+
+            $omenTask = Get-ScheduledTask `
+                -TaskName $omenTaskName `
+                -TaskPath $omenTaskPath `
+                -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.TaskName -eq $omenTaskName -and $_.TaskPath -eq $omenTaskPath
+                } |
+                Select-Object -First 1
             if ($null -eq $omenTask) {
                 continue
             }
 
             if ($entry.Enabled) {
-                Enable-ScheduledTask -InputObject $omenTask | Out-Null
+                Enable-ScheduledTask -TaskName $omenTaskName -TaskPath $omenTaskPath | Out-Null
                 if ($entry.Running) {
-                    Start-ScheduledTask -InputObject $omenTask
+                    Start-ScheduledTask -TaskName $omenTaskName -TaskPath $omenTaskPath
                 }
             } else {
-                Disable-ScheduledTask -InputObject $omenTask | Out-Null
+                Disable-ScheduledTask -TaskName $omenTaskName -TaskPath $omenTaskPath | Out-Null
             }
         }
         Remove-Item -LiteralPath $omenTaskBackupPath -Force

@@ -97,7 +97,7 @@ Requirements: Windows, [.NET 10 SDK](https://dotnet.microsoft.com/download/dotne
 
 ```powershell
 dotnet test .\VictusModeSwitch.slnx -c Release
-.\scripts\Build-Release.ps1 -Version 2.0.1
+.\scripts\Build-Release.ps1 -Version 2.0.2
 ```
 
 Artifacts are written to `artifacts/`. For hardware diagnostics:

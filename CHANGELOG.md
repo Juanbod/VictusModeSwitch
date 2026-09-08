@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.2 - 2026-09-08
+
+- Restore saved OMEN scheduled tasks correctly when uninstalling through Windows PowerShell 5.1.
+- Make hardware cleanup retryable after an interrupted or partially completed uninstall.
+
 ## 2.0.1 - 2026-09-08
 
 - Show immediate pending feedback after a diamond-button gesture, then confirm it when the hardware operation finishes.

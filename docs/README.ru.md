@@ -75,7 +75,7 @@
 
 ```powershell
 dotnet test .\VictusModeSwitch.slnx -c Release
-.\scripts\Build-Release.ps1 -Version 2.0.1
+.\scripts\Build-Release.ps1 -Version 2.0.2
 ```
 
 Проект не связан с HP и не поддерживается HP. Исходный код распространяется по лицензии [MIT](../LICENSE).

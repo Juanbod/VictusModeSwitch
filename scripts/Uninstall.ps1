@@ -10,15 +10,47 @@ $executable = Join-Path $installDirectory 'VictusModeSwitch.exe'
 $backgroundBackupPath = Join-Path $dataDirectory 'omen-background-backup.json'
 $backgroundKeyPath = 'Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\AD2F1837.OMENCommandCenter_v10z8vjag6ke6'
 $elevationResult = Join-Path $dataDirectory 'elevated-remove-result.json'
+$hardwareRestoreMarker = Join-Path $dataDirectory 'uninstall-hardware-restored.json'
 $elevatedScript = Join-Path $PSScriptRoot 'Remove-Elevated.ps1'
 $trayTaskName = 'Victus Mode Switch Tray'
+$biosTaskName = 'Victus Mode Switch BIOS'
 $brokerRegistryPath = 'Software\VictusModeSwitch\Broker'
 
 Stop-ScheduledTask -TaskName $trayTaskName -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName $trayTaskName -Confirm:$false -ErrorAction SilentlyContinue
 Get-Process -Name 'VictusModeSwitch' -ErrorAction SilentlyContinue | Stop-Process -Force
 
-if (Test-Path -LiteralPath $executable -PathType Leaf) {
+$hardwareRestored = Test-Path -LiteralPath $hardwareRestoreMarker -PathType Leaf
+$biosTask = Get-ScheduledTask -TaskName $biosTaskName -ErrorAction SilentlyContinue |
+    Where-Object { $_.TaskName -eq $biosTaskName } |
+    Select-Object -First 1
+
+if (-not $hardwareRestored -and $null -eq $biosTask -and
+    (Test-Path -LiteralPath $elevationResult -PathType Leaf)) {
+    try {
+        $previousRemoval = Get-Content -LiteralPath $elevationResult -Raw | ConvertFrom-Json
+        $hardwareRestored = -not [bool]$previousRemoval.Success
+        if ($hardwareRestored) {
+            [ordered]@{
+                CompletedAt = (Get-Date).ToString('o')
+                Mode = 'Standard'
+                MaxFan = $false
+                InferredFromPreviousCleanup = $true
+            } | ConvertTo-Json | Set-Content -LiteralPath $hardwareRestoreMarker -Encoding UTF8
+        }
+    } catch {
+        $hardwareRestored = $false
+    }
+}
+
+if (-not $hardwareRestored) {
+    if ($null -eq $biosTask) {
+        throw 'The BIOS helper is missing, so Standard mode and automatic fan control cannot be restored. Repair the installation and try again.'
+    }
+    if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
+        throw "Installed executable was not found at '$executable'."
+    }
+
     $restore = Start-Process -FilePath $executable -ArgumentList '--set standard' -Wait -PassThru
     if ($restore.ExitCode -ne 0) {
         throw "Could not restore Standard mode; exit code $($restore.ExitCode)."
@@ -28,6 +60,13 @@ if (Test-Path -LiteralPath $executable -PathType Leaf) {
     if ($fanRestore.ExitCode -ne 0) {
         throw "Could not restore automatic fan control; exit code $($fanRestore.ExitCode)."
     }
+
+    New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
+    [ordered]@{
+        CompletedAt = (Get-Date).ToString('o')
+        Mode = 'Standard'
+        MaxFan = $false
+    } | ConvertTo-Json | Set-Content -LiteralPath $hardwareRestoreMarker -Encoding UTF8
 }
 
 New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
@@ -68,6 +107,9 @@ if (Test-Path -LiteralPath $backgroundBackupPath) {
     $backgroundKey.Dispose()
     Remove-Item -LiteralPath $backgroundBackupPath -Force
 }
+
+Remove-Item -LiteralPath $hardwareRestoreMarker -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $elevationResult -Force -ErrorAction SilentlyContinue
 
 if ($RemoveData -and (Test-Path -LiteralPath $dataDirectory)) {
     $localAppData = [System.IO.Path]::GetFullPath($env:LOCALAPPDATA)

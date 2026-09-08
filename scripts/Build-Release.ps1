@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '2.0.1'
+    [string]$Version = '2.0.2'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,6 +16,13 @@ New-Item -ItemType Directory -Path (Join-Path $artifactsDirectory 'publish') -Fo
 
 Push-Location $projectRoot
 try {
+    $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    & $windowsPowerShell `
+        -NoProfile `
+        -ExecutionPolicy Bypass `
+        -File .\scripts\Test-UninstallRecovery.ps1
+    if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell uninstall tests failed.' }
+
     dotnet test .\VictusModeSwitch.slnx -c Release
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
 

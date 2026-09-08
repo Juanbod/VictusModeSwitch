@@ -22,6 +22,9 @@ jobs:
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid release tag '$env:GITHUB_REF_NAME'." }
           "VERSION=$version" >> $env:GITHUB_ENV
+      - name: Test Windows PowerShell uninstall recovery
+        shell: cmd
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-UninstallRecovery.ps1
       - name: Test
         run: dotnet test .\VictusModeSwitch.slnx -c Release
       - name: Publish self-contained app
