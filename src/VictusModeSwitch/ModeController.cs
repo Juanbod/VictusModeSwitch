@@ -34,6 +34,7 @@ internal sealed class ModeController
             Log.Info($"BIOS: режим {target}, Max Fan {(maxFanEnabled ? "включен" : "выключен")}");
 
             await ApplyWindowsPowerAsync(target, warnings);
+            await ApplyEcoBehaviorAsync(target, warnings);
 
             _store.Settings.CurrentMode = target;
             _store.Settings.MaxFanEnabled = maxFanEnabled;
@@ -147,6 +148,202 @@ internal sealed class ModeController
         if (!applied.Success)
         {
             warnings.Add(applied.Warning);
+        }
+    }
+
+    private async Task ApplyEcoBehaviorAsync(AppMode target, List<string> warnings)
+    {
+        var eco = target == AppMode.Eco;
+        await ApplyDisplayRefreshRateAsync(
+            eco && _store.Settings.EcoBehavior.LimitDisplayRefreshRate,
+            warnings);
+        await ApplyNvidiaFrameRateAsync(
+            eco && _store.Settings.EcoBehavior.LimitNvidiaFrameRate,
+            warnings);
+        await ApplyTurboBoostAsync(
+            eco && _store.Settings.EcoBehavior.DisableTurboBoost,
+            warnings);
+    }
+
+    private async Task ApplyDisplayRefreshRateAsync(bool enabled, List<string> warnings)
+    {
+        var backup = _store.Settings.EcoBehaviorBackup.DisplayRefreshRate;
+        if (enabled)
+        {
+            if (!backup.Valid)
+            {
+                var capture = await CaptureAsync(
+                    "сохранить частоту встроенного дисплея",
+                    DisplayRefreshRateController.Capture);
+                if (!capture.Success || capture.Value is null)
+                {
+                    warnings.Add(capture.Warning);
+                    return;
+                }
+
+                backup = capture.Value;
+                _store.Settings.EcoBehaviorBackup.DisplayRefreshRate = backup;
+                _store.Save();
+            }
+
+            var applied = await RunOptionalAsync(
+                "ограничить встроенный дисплей до 60 Гц",
+                () => DisplayRefreshRateController.ApplyLimit(backup));
+            if (!applied.Success)
+            {
+                warnings.Add(applied.Warning);
+            }
+
+            return;
+        }
+
+        if (!backup.Valid)
+        {
+            return;
+        }
+
+        var restored = await RunOptionalAsync(
+            "восстановить частоту встроенного дисплея",
+            () => DisplayRefreshRateController.Restore(backup));
+        if (restored.Success)
+        {
+            _store.Settings.EcoBehaviorBackup.DisplayRefreshRate = new DisplayRefreshRateBackup();
+            _store.Save();
+        }
+        else
+        {
+            warnings.Add(restored.Warning);
+        }
+    }
+
+    private async Task ApplyNvidiaFrameRateAsync(bool enabled, List<string> warnings)
+    {
+        var backup = _store.Settings.EcoBehaviorBackup.NvidiaFrameRate;
+        if (enabled)
+        {
+            if (!backup.Valid)
+            {
+                var capture = await CaptureAsync(
+                    "сохранить ограничение FPS NVIDIA",
+                    NvidiaFrameRateController.Capture);
+                if (!capture.Success || capture.Value is null)
+                {
+                    warnings.Add(capture.Warning);
+                    return;
+                }
+
+                backup = capture.Value;
+                _store.Settings.EcoBehaviorBackup.NvidiaFrameRate = backup;
+                _store.Save();
+            }
+
+            var applied = await RunOptionalAsync(
+                "ограничить NVIDIA до 60 FPS",
+                () => NvidiaFrameRateController.ApplyLimit(backup));
+            if (!applied.Success)
+            {
+                warnings.Add(applied.Warning);
+            }
+
+            return;
+        }
+
+        if (!backup.Valid)
+        {
+            return;
+        }
+
+        var restored = await RunOptionalAsync(
+            "восстановить ограничение FPS NVIDIA",
+            () => NvidiaFrameRateController.Restore(backup));
+        if (restored.Success)
+        {
+            _store.Settings.EcoBehaviorBackup.NvidiaFrameRate = new NvidiaFrameRateBackup();
+            _store.Save();
+        }
+        else
+        {
+            warnings.Add(restored.Warning);
+        }
+    }
+
+    private async Task ApplyTurboBoostAsync(bool enabled, List<string> warnings)
+    {
+        var backup = _store.Settings.EcoBehaviorBackup.TurboBoost;
+        if (enabled && backup.Valid)
+        {
+            var usesCurrentScheme = false;
+            var checkedScheme = await RunOptionalAsync(
+                "проверить схему питания для Turbo Boost",
+                () => usesCurrentScheme = WindowsPowerTuningController.UsesCurrentScheme(backup));
+            if (!checkedScheme.Success)
+            {
+                warnings.Add(checkedScheme.Warning);
+                return;
+            }
+
+            if (!usesCurrentScheme)
+            {
+                var restoredOldScheme = await RunOptionalAsync(
+                    "восстановить Turbo Boost в прежней схеме питания",
+                    () => WindowsPowerTuningController.RestoreTurboBoost(backup));
+                if (!restoredOldScheme.Success)
+                {
+                    warnings.Add(restoredOldScheme.Warning);
+                    return;
+                }
+
+                backup = new TurboBoostBackup();
+                _store.Settings.EcoBehaviorBackup.TurboBoost = backup;
+                _store.Save();
+            }
+        }
+
+        if (enabled)
+        {
+            if (!backup.Valid)
+            {
+                var capture = await CaptureAsync(
+                    "сохранить настройку Turbo Boost",
+                    WindowsPowerTuningController.CaptureTurboBoost);
+                if (!capture.Success || capture.Value is null)
+                {
+                    warnings.Add(capture.Warning);
+                    return;
+                }
+
+                backup = capture.Value;
+                _store.Settings.EcoBehaviorBackup.TurboBoost = backup;
+                _store.Save();
+            }
+
+            var applied = await RunOptionalAsync(
+                "отключить Turbo Boost",
+                () => WindowsPowerTuningController.DisableTurboBoost(backup));
+            if (!applied.Success)
+            {
+                warnings.Add(applied.Warning);
+            }
+
+            return;
+        }
+
+        if (!backup.Valid)
+        {
+            return;
+        }
+
+        var restored = await RunOptionalAsync(
+            "восстановить Turbo Boost",
+            () => WindowsPowerTuningController.RestoreTurboBoost(backup));
+        if (restored.Success)
+        {
+            _store.Settings.EcoBehaviorBackup.TurboBoost = new TurboBoostBackup();
+            _store.Save();
+        }
+        else
+        {
+            warnings.Add(restored.Warning);
         }
     }
 

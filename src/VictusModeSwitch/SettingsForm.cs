@@ -33,6 +33,9 @@ internal sealed class SettingsForm : Form
     private readonly FluentToggle _maxFanToggle = new();
     private readonly FluentToggle _notificationsToggle = new();
     private readonly ComboBox _languageCombo = new();
+    private readonly FluentToggle _ecoRefreshRateToggle = new();
+    private readonly FluentToggle _ecoFrameRateToggle = new();
+    private readonly FluentToggle _ecoTurboBoostToggle = new();
     private readonly FluentToggle _powerTuningToggle = new();
     private readonly NumericUpDown _ecoAcMaximum = CreatePercentInput();
     private readonly NumericUpDown _ecoBatteryMaximum = CreatePercentInput();
@@ -151,7 +154,7 @@ internal sealed class SettingsForm : Form
     private void BuildGeneralPage()
     {
         ConfigurePage(_generalPage);
-        var layout = NewPageLayout(541);
+        var layout = NewPageLayout(553);
         AddHeader(layout, 0, "GeneralTitle", "GeneralSubtitle");
 
         var quickTitle = NewLabel(11f, FontStyle.Bold);
@@ -199,33 +202,47 @@ internal sealed class SettingsForm : Form
         layout.Controls.Add(CreateMappingRow("DoublePress", "ToggleMaxFan"), 0, 10);
         layout.Controls.Add(CreateMappingRow("TriplePress", "EnableEco"), 0, 11);
 
-        SetRows(layout, 68, 32, 48, 24, 1, 68, 68, 68, 38, 42, 42, 42);
+        SetRows(layout, 80, 32, 48, 24, 1, 68, 68, 68, 38, 42, 42, 42);
         _generalPage.Controls.Add(layout);
     }
 
     private void BuildPowerPage()
     {
         ConfigurePage(_powerPage);
-        var layout = NewPageLayout(430);
+        var layout = NewPageLayout(625);
         AddHeader(layout, 0, "PowerTitle", "PowerSubtitle");
-        layout.Controls.Add(CreateSettingRow("PowerTuning", "PowerTuningDescription", _powerTuningToggle), 0, 1);
-        layout.Controls.Add(CreateSettingRow("EcoAcLimit", "EcoAcDescription", PercentControl(_ecoAcMaximum)), 0, 2);
-        layout.Controls.Add(CreateSettingRow("EcoBatteryLimit", "EcoBatteryDescription", PercentControl(_ecoBatteryMaximum)), 0, 3);
+        layout.Controls.Add(CreateSectionTitle("EcoBehaviorTitle"), 0, 1);
+        layout.Controls.Add(CreateSettingRow(
+            "EcoRefreshRate",
+            "EcoRefreshRateDescription",
+            _ecoRefreshRateToggle), 0, 2);
+        layout.Controls.Add(CreateSettingRow(
+            "EcoFrameRate",
+            "EcoFrameRateDescription",
+            _ecoFrameRateToggle), 0, 3);
+        layout.Controls.Add(CreateSettingRow(
+            "EcoTurboBoost",
+            "EcoTurboBoostDescription",
+            _ecoTurboBoostToggle), 0, 4);
+        layout.Controls.Add(CreateSectionTitle("WindowsPowerTitle"), 0, 5);
+        layout.Controls.Add(CreateSettingRow("PowerTuning", "PowerTuningDescription", _powerTuningToggle), 0, 6);
+        layout.Controls.Add(CreateSettingRow("EcoAcLimit", "EcoAcDescription", PercentControl(_ecoAcMaximum)), 0, 7);
+        layout.Controls.Add(CreateSettingRow("EcoBatteryLimit", "EcoBatteryDescription", PercentControl(_ecoBatteryMaximum)), 0, 8);
 
         _powerStatus.Dock = DockStyle.Fill;
         _powerStatus.Font = WindowsTheme.Font(9f);
         _powerStatus.Padding = new Padding(0, 14, 0, 0);
         _powerStatus.Tag = "secondary";
         Register(_powerStatus, "PowerRestoreNote");
-        layout.Controls.Add(_powerStatus, 0, 4);
-        SetRows(layout, 72, 92, 82, 82, 78);
+        layout.Controls.Add(_powerStatus, 0, 9);
+        SetRows(layout, 80, 30, 68, 68, 68, 30, 82, 72, 72, 55);
         _powerPage.Controls.Add(layout);
     }
 
     private void BuildAboutPage()
     {
         ConfigurePage(_aboutPage);
-        var layout = NewPageLayout(548);
+        var layout = NewPageLayout(556);
         AddHeader(layout, 0, "AboutTitle", "AboutSubtitle");
         layout.Controls.Add(CreateStaticRow("SupportedHardware", "SupportedHardwareDescription"), 0, 1);
         layout.Controls.Add(CreateSettingRow("CheckForUpdates", "CheckForUpdatesDescription", _updateToggle), 0, 2);
@@ -267,7 +284,7 @@ internal sealed class SettingsForm : Form
         warning.Controls.Add(warningTitle);
         layout.Controls.Add(warning, 0, 6);
 
-        SetRows(layout, 72, 82, 82, 68, 55, 65, 124);
+        SetRows(layout, 80, 82, 82, 68, 55, 65, 124);
         _aboutPage.Controls.Add(layout);
     }
 
@@ -283,6 +300,9 @@ internal sealed class SettingsForm : Form
         _notificationsToggle.CheckedChanged += (_, _) => SavePreference(() =>
             _store.Settings.ShowNotifications = _notificationsToggle.Checked);
         _languageCombo.SelectedIndexChanged += ChangeLanguage;
+        _ecoRefreshRateToggle.CheckedChanged += async (_, _) => await ChangeEcoBehaviorAsync();
+        _ecoFrameRateToggle.CheckedChanged += async (_, _) => await ChangeEcoBehaviorAsync();
+        _ecoTurboBoostToggle.CheckedChanged += async (_, _) => await ChangeEcoBehaviorAsync();
         _powerTuningToggle.CheckedChanged += async (_, _) => await ChangePowerTuningAsync();
         _ecoAcMaximum.ValueChanged += QueuePowerSettingsSave;
         _ecoBatteryMaximum.ValueChanged += QueuePowerSettingsSave;
@@ -302,6 +322,9 @@ internal sealed class SettingsForm : Form
         ReloadLanguageOptions();
         _notificationsToggle.Checked = _store.Settings.ShowNotifications;
         _maxFanToggle.Checked = _controller.MaxFanEnabled;
+        _ecoRefreshRateToggle.Checked = _store.Settings.EcoBehavior.LimitDisplayRefreshRate;
+        _ecoFrameRateToggle.Checked = _store.Settings.EcoBehavior.LimitNvidiaFrameRate;
+        _ecoTurboBoostToggle.Checked = _store.Settings.EcoBehavior.DisableTurboBoost;
         _powerTuningToggle.Checked = _store.Settings.PowerTuning.Enabled;
         _ecoAcMaximum.Value = _store.Settings.PowerTuning.EcoAcMaximumProcessor;
         _ecoBatteryMaximum.Value = _store.Settings.PowerTuning.EcoBatteryMaximumProcessor;
@@ -335,6 +358,9 @@ internal sealed class SettingsForm : Form
         _updateStatus.Text = _localizer.Format("Version", AppVersion.Display);
         _toolTip.SetToolTip(_maxFanToggle, _localizer["MaxFan"]);
         _toolTip.SetToolTip(_notificationsToggle, _localizer["Notifications"]);
+        _toolTip.SetToolTip(_ecoRefreshRateToggle, _localizer["EcoRefreshRate"]);
+        _toolTip.SetToolTip(_ecoFrameRateToggle, _localizer["EcoFrameRate"]);
+        _toolTip.SetToolTip(_ecoTurboBoostToggle, _localizer["EcoTurboBoost"]);
         _toolTip.SetToolTip(_powerTuningToggle, _localizer["PowerTuning"]);
         _toolTip.SetToolTip(_updateToggle, _localizer["CheckForUpdates"]);
         UpdateModeUi();
@@ -373,7 +399,16 @@ internal sealed class SettingsForm : Form
             navigation.ApplyTheme(palette);
         }
 
-        foreach (var toggle in new[] { _maxFanToggle, _notificationsToggle, _powerTuningToggle, _updateToggle })
+        foreach (var toggle in new[]
+                 {
+                     _maxFanToggle,
+                     _notificationsToggle,
+                     _ecoRefreshRateToggle,
+                     _ecoFrameRateToggle,
+                     _ecoTurboBoostToggle,
+                     _powerTuningToggle,
+                     _updateToggle
+                 })
         {
             toggle.ApplyTheme(palette);
         }
@@ -506,6 +541,41 @@ internal sealed class SettingsForm : Form
         _powerStatus.ForeColor = WindowsTheme.Current.SecondaryText;
     }
 
+    private async Task ChangeEcoBehaviorAsync()
+    {
+        if (_loading || _hardwareBusy)
+        {
+            return;
+        }
+
+        _store.Settings.EcoBehavior.LimitDisplayRefreshRate = _ecoRefreshRateToggle.Checked;
+        _store.Settings.EcoBehavior.LimitNvidiaFrameRate = _ecoFrameRateToggle.Checked;
+        _store.Settings.EcoBehavior.DisableTurboBoost = _ecoTurboBoostToggle.Checked;
+        _store.Save();
+        PreferencesChanged?.Invoke();
+
+        SetHardwareBusy(true);
+        _powerStatus.Text = _localizer["ApplyingEcoBehavior"];
+        _powerStatus.ForeColor = WindowsTheme.Current.SecondaryText;
+        try
+        {
+            var result = await _controller.ApplyAsync(_controller.CurrentMode, reapply: true);
+            if (!result.Success || result.Warnings.Count > 0)
+            {
+                _powerStatus.Text = result.Warnings.FirstOrDefault() ?? _localizer["ModeError"];
+                _powerStatus.ForeColor = Color.FromArgb(196, 43, 28);
+                return;
+            }
+
+            _powerStatus.Text = _localizer["EcoBehaviorApplied"];
+            _powerStatus.ForeColor = WindowsTheme.Current.SecondaryText;
+        }
+        finally
+        {
+            SetHardwareBusy(false);
+        }
+    }
+
     private void QueuePowerSettingsSave(object? sender, EventArgs eventArgs)
     {
         if (_loading)
@@ -588,6 +658,9 @@ internal sealed class SettingsForm : Form
         _standardButton.Enabled = !busy;
         _performanceButton.Enabled = !busy;
         _maxFanToggle.Enabled = !busy;
+        _ecoRefreshRateToggle.Enabled = !busy;
+        _ecoFrameRateToggle.Enabled = !busy;
+        _ecoTurboBoostToggle.Enabled = !busy;
     }
 
     private void UpdateModeUi()
@@ -685,25 +758,42 @@ internal sealed class SettingsForm : Form
 
     private void AddHeader(TableLayoutPanel layout, int row, string titleKey, string subtitleKey)
     {
-        var panel = new Panel { Dock = DockStyle.Fill };
+        var panel = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, Padding = Padding.Empty };
         var title = NewLabel(22f);
-        title.Dock = DockStyle.Top;
-        title.Height = 44;
+        title.Height = 50;
+        title.TextAlign = ContentAlignment.MiddleLeft;
         Register(title, titleKey);
         var subtitle = NewLabel(9.5f);
-        subtitle.Dock = DockStyle.Fill;
+        subtitle.TextAlign = ContentAlignment.TopLeft;
         subtitle.Tag = "secondary";
         Register(subtitle, subtitleKey);
+        void ArrangeHeader()
+        {
+            title.Bounds = new Rectangle(-4, 0, Math.Max(1, panel.ClientSize.Width + 4), 50);
+            subtitle.Bounds = new Rectangle(0, 50, Math.Max(1, panel.ClientSize.Width), 30);
+        }
+
+        panel.SizeChanged += (_, _) => ArrangeHeader();
         panel.Controls.Add(subtitle);
         panel.Controls.Add(title);
+        ArrangeHeader();
         layout.Controls.Add(panel, 0, row);
+    }
+
+    private Label CreateSectionTitle(string titleKey)
+    {
+        var title = NewLabel(11f, FontStyle.Bold);
+        title.Dock = DockStyle.Fill;
+        title.TextAlign = ContentAlignment.MiddleLeft;
+        title.Padding = new Padding(0, 5, 0, 0);
+        return Register(title, titleKey);
     }
 
     private TableLayoutPanel CreateSettingRow(string titleKey, string descriptionKey, Control action)
     {
         var row = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, Math.Max(64, action.Width + 20)));
         row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         row.RowStyles.Add(new RowStyle(SizeType.Absolute, 1));
 
@@ -819,6 +909,8 @@ internal sealed class SettingsForm : Form
     {
         AutoSize = false,
         Font = WindowsTheme.Font(size, style),
+        Margin = Padding.Empty,
+        Padding = Padding.Empty,
         TextAlign = ContentAlignment.MiddleLeft
     };
 

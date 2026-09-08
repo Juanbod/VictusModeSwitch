@@ -223,7 +223,8 @@ internal static class Program
             Board = HardwareInfo.GetBoardProduct(),
             store.Settings.CurrentMode,
             store.Settings.MaxFanEnabled,
-            PowerTuning = store.Settings.PowerTuning.Enabled
+            PowerTuning = store.Settings.PowerTuning.Enabled,
+            store.Settings.EcoBehavior
         };
         var options = new JsonSerializerOptions
         {

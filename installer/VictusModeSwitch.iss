@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "2.0.2"
+  #define AppVersion "2.1.0"
 #endif
 
 #define AppName "Victus Mode Switch"

@@ -12,6 +12,7 @@ internal static class WindowsPowerTuningController
     private static readonly Guid ProcessorEpp = new("36687f9e-e3a5-4dbf-b1dc-15eb381c6863");
     private static readonly Guid ProcessorEppClass1 = new("36687f9e-e3a5-4dbf-b1dc-15eb381c6864");
     private static readonly Guid ProcessorEppClass2 = new("36687f9e-e3a5-4dbf-b1dc-15eb381c6865");
+    private static readonly Guid ProcessorBoostMode = new("be337238-0d82-4146-a960-4f3749d470c7");
     private static readonly Guid CoolingPolicy = new("94d3a615-a899-4ac5-ae2b-e4d8f634367f");
     private static readonly Guid PcieSubgroup = new("501a4d13-42af-4429-9fd1-a8218c268e20");
     private static readonly Guid PcieLinkState = new("ee12f906-d277-404b-b6da-e5fa1a576df5");
@@ -61,6 +62,54 @@ internal static class WindowsPowerTuningController
 
     public static bool UsesCurrentScheme(WindowsPowerBackup backup) =>
         backup.Valid && backup.Revision == BackupRevision && backup.Scheme == GetActiveScheme();
+
+    public static TurboBoostBackup CaptureTurboBoost()
+    {
+        var scheme = GetActiveScheme();
+        var value = CaptureValue(scheme, ProcessorSubgroup, ProcessorBoostMode, "режим Turbo Boost");
+        if (!value.Valid)
+        {
+            throw new InvalidOperationException("Windows не предоставила настройку Turbo Boost.");
+        }
+
+        return new TurboBoostBackup
+        {
+            Valid = true,
+            Scheme = scheme,
+            Value = value
+        };
+    }
+
+    public static bool UsesCurrentScheme(TurboBoostBackup backup) =>
+        backup.Valid && backup.Value.Valid && backup.Scheme == GetActiveScheme();
+
+    public static void DisableTurboBoost(TurboBoostBackup backup)
+    {
+        EnsureTurboBoostBackup(backup);
+        WriteIfValid(
+            backup.Scheme,
+            ProcessorSubgroup,
+            ProcessorBoostMode,
+            backup.Value,
+            0,
+            0,
+            "отключение Turbo Boost");
+        ActivateIfCurrent(backup.Scheme);
+        Log.Info("Eco Turbo Boost: отключён");
+    }
+
+    public static void RestoreTurboBoost(TurboBoostBackup backup)
+    {
+        EnsureTurboBoostBackup(backup);
+        RestoreValue(
+            backup.Scheme,
+            ProcessorSubgroup,
+            ProcessorBoostMode,
+            backup.Value,
+            "восстановление Turbo Boost");
+        ActivateIfCurrent(backup.Scheme);
+        Log.Info("Eco Turbo Boost: исходное состояние восстановлено");
+    }
 
     public static void Apply(AppMode mode, WindowsPowerBackup backup, PowerTuningSettings settings)
     {
@@ -188,6 +237,14 @@ internal static class WindowsPowerTuningController
         backup.WirelessPowerSaving.Valid ||
         backup.UsbSelectiveSuspend.Valid ||
         backup.PowerMode.Valid;
+
+    private static void EnsureTurboBoostBackup(TurboBoostBackup backup)
+    {
+        if (!backup.Valid || !backup.Value.Valid)
+        {
+            throw new InvalidOperationException("Нет резервной копии настройки Turbo Boost.");
+        }
+    }
 
     private static PowerValueBackup CaptureValue(Guid scheme, Guid subgroup, Guid setting, string name)
     {

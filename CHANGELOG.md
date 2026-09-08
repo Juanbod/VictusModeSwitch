@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.1.0 - 2026-09-08
+
+- Add independent Eco options for a 60 Hz built-in display limit, a 60 FPS NVIDIA limit, and disabling CPU Turbo Boost.
+- Capture and restore every changed display, NVIDIA, and Windows power value independently.
+- Use the NVIDIA driver's native NVAPI interface without an OMEN Gaming Hub DLL dependency.
+- Align page headings with their subtitles and reserve enough height for descenders at scaled DPI.
+- Document the minimum HP software required by Victus Mode Switch.
 - Document the OMEN Gaming Hub to HP BIOS communication path, known command map, and board `8A4F` capability data.
 - Add a read-only interface inventory script that never invokes a BIOS method.
 

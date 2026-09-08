@@ -13,6 +13,8 @@ internal sealed class AppSettings
     public DateTimeOffset? LastUpdateCheckUtc { get; set; }
     public PowerTuningSettings PowerTuning { get; set; } = new();
     public WindowsPowerBackup WindowsPower { get; set; } = new();
+    public EcoBehaviorSettings EcoBehavior { get; set; } = new();
+    public EcoBehaviorBackup EcoBehaviorBackup { get; set; } = new();
 
     // Reads the v1.x property without writing it back to the new settings file.
     [JsonPropertyName("Experimental")]
@@ -43,6 +45,9 @@ internal sealed class AppSettings
         PowerTuning.EcoBatteryMaximumProcessor = Math.Clamp(PowerTuning.EcoBatteryMaximumProcessor, 5, 100);
         WindowsPower ??= new WindowsPowerBackup();
         WindowsPower.Normalize();
+        EcoBehavior ??= new EcoBehaviorSettings();
+        EcoBehaviorBackup ??= new EcoBehaviorBackup();
+        EcoBehaviorBackup.Normalize();
     }
 }
 
@@ -106,6 +111,48 @@ internal sealed class PowerModeBackup
     public bool Valid { get; set; }
     public Guid AcMode { get; set; }
     public Guid DcMode { get; set; }
+}
+
+internal sealed class EcoBehaviorSettings
+{
+    public bool LimitDisplayRefreshRate { get; set; }
+    public bool LimitNvidiaFrameRate { get; set; }
+    public bool DisableTurboBoost { get; set; }
+}
+
+internal sealed class EcoBehaviorBackup
+{
+    public DisplayRefreshRateBackup DisplayRefreshRate { get; set; } = new();
+    public NvidiaFrameRateBackup NvidiaFrameRate { get; set; } = new();
+    public TurboBoostBackup TurboBoost { get; set; } = new();
+
+    public void Normalize()
+    {
+        DisplayRefreshRate ??= new DisplayRefreshRateBackup();
+        NvidiaFrameRate ??= new NvidiaFrameRateBackup();
+        TurboBoost ??= new TurboBoostBackup();
+        TurboBoost.Value ??= new PowerValueBackup();
+    }
+}
+
+internal sealed class DisplayRefreshRateBackup
+{
+    public bool Valid { get; set; }
+    public string DeviceName { get; set; } = string.Empty;
+    public uint Frequency { get; set; }
+}
+
+internal sealed class NvidiaFrameRateBackup
+{
+    public bool Valid { get; set; }
+    public uint Limit { get; set; }
+}
+
+internal sealed class TurboBoostBackup
+{
+    public bool Valid { get; set; }
+    public Guid Scheme { get; set; }
+    public PowerValueBackup Value { get; set; } = new();
 }
 
 internal sealed class AppSettingsStore

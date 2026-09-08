@@ -29,6 +29,7 @@
 - The tray menu provides direct, silent mode selection.
 - The settings UI follows the Windows light/dark theme and supports English, Russian, Ukrainian, or the Windows display language.
 - Optional Windows power tuning adjusts CPU, cooling, PCIe, Wi-Fi, and USB power preferences and restores the original values in Standard mode.
+- Optional Eco controls can independently limit the built-in display to 60 Hz, cap NVIDIA globally at 60 FPS, and disable CPU Turbo Boost. All three are off by default and restore the captured values after leaving Eco.
 - The built-in updater checks GitHub Releases and verifies the installer SHA-256 checksum before it can run.
 
 Holding the diamond button cannot be detected reliably on the tested laptop. Its firmware emits one WMI pulse without a release or repeat event, so Eco uses a triple press.
@@ -62,13 +63,25 @@ The release installer is currently **not code-signed**, so Windows may show an u
 
 The optional setup checkbox pauses OMEN Gaming Hub background helpers. OMEN Gaming Hub is not uninstalled, the HP Omen HSA hardware service remains available, and saved task/background states are restored on uninstall.
 
+## Minimum HP software
+
+Victus Mode Switch talks to the HP WMI BIOS interface and the diamond-button event directly. It does not call OMEN Gaming Hub, HP Support Assistant, or the HP HSA user-mode services.
+
+The conservative minimum retained on the tested laptop is:
+
+- **HP Application Driver** (`ACPI\HPIC0003`);
+- **HP Omen Driver** (`ACPI\HPIC0004`);
+- the NVIDIA display driver, only when the optional 60 FPS limit is used.
+
+If no other HP application is needed, OMEN Gaming Hub, HP Support Solutions Framework, HP Insights/Touchpoint Analytics, and the `HPAppHelperCap`, `HPDiagsCap`, `HPNetworkCap`, `HPOmenCap`, and `HPSysInfoCap` services are not required by Victus Mode Switch. During one measurement those five running helpers used about 206 MB of private memory together. Removing them can disable HP Support Assistant diagnostics or other HP features, Windows Update may reinstall them, and unrelated chipset, ACPI, keyboard, or graphics drivers should not be removed.
+
 ## Modes
 
-| Mode | HP BIOS | Optional Windows tuning | Max Fan |
-|---|---|---|---|
-| Eco | Standard thermal policy | Best efficiency, configurable CPU limits, device power saving | Turns off when entering Eco |
-| Standard | Standard thermal policy | Restores the captured Windows values | Preserved |
-| Performance | Performance thermal policy | Best performance, CPU/EPP and device power saving tuned for speed | Preserved |
+| Mode | HP BIOS | Optional Windows tuning | Optional Eco controls | Max Fan |
+|---|---|---|---|---|
+| Eco | Standard thermal policy | Best efficiency, configurable CPU limits, device power saving | 60 Hz, 60 FPS, and Turbo Boost off, independently selectable | Turns off when entering Eco |
+| Standard | Standard thermal policy | Restores the captured Windows values | Restores captured values | Preserved |
+| Performance | Performance thermal policy | Best performance, CPU/EPP and device power saving tuned for speed | Restores captured values | Preserved |
 
 Max Fan can still be toggled independently after entering any mode.
 
@@ -85,6 +98,7 @@ For each update the app downloads the installer and checksum from the same GitHu
 - `.NET 10` Windows Forms, self-contained `win-x64` release
 - HP WMI event listener for `EventID=29`, `EventData=8613`
 - Per-user tray process with normal privileges
+- Direct Windows display APIs, NVIDIA NVAPI, and Windows power APIs for the optional Eco controls
 - Protected PowerShell broker under `Program Files`, launched without a console window, that accepts only fixed mode/fan requests and runs briefly at highest privileges
 - Inno Setup per-user installer
 - GitHub Actions build, tests, installer packaging, checksums, and Releases
@@ -107,7 +121,7 @@ Requirements: Windows, [.NET 10 SDK](https://dotnet.microsoft.com/download/dotne
 
 ```powershell
 dotnet test .\VictusModeSwitch.slnx -c Release
-.\scripts\Build-Release.ps1 -Version 2.0.2
+.\scripts\Build-Release.ps1 -Version 2.1.0
 ```
 
 Artifacts are written to `artifacts/`. For hardware diagnostics:
@@ -120,7 +134,7 @@ Normal mode switching requires the installer-created protected broker task. Do n
 
 ## Uninstall
 
-Use **Settings > Apps > Installed apps > Victus Mode Switch > Uninstall**. Removal switches to Standard, disables Max Fan, restores captured Windows power values, removes the startup entry and elevated BIOS task, and restores saved OMEN background settings. User settings and logs remain in `%LOCALAPPDATA%\VictusModeSwitch` unless removed manually.
+Use **Settings > Apps > Installed apps > Victus Mode Switch > Uninstall**. Removal switches to Standard, disables Max Fan, restores captured Windows power, display refresh, NVIDIA frame-limit, and Turbo Boost values, removes the startup entry and elevated BIOS task, and restores saved OMEN background settings. User settings and logs remain in `%LOCALAPPDATA%\VictusModeSwitch` unless removed manually.
 
 ## License and notice
 

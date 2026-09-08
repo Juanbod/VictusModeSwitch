@@ -101,6 +101,49 @@ public sealed class CoreTests
         Assert.Equal(55, settings.PowerTuning.EcoBatteryMaximumProcessor);
     }
 
+    [Fact]
+    public void AppSettings_NormalizesMissingEcoBehaviorState()
+    {
+        const string json = """
+            {
+              "EcoBehavior": null,
+              "EcoBehaviorBackup": null
+            }
+            """;
+
+        var settings = JsonSerializer.Deserialize<AppSettings>(json)!;
+        settings.Normalize();
+
+        Assert.NotNull(settings.EcoBehavior);
+        Assert.NotNull(settings.EcoBehaviorBackup);
+        Assert.False(settings.EcoBehavior.LimitDisplayRefreshRate);
+        Assert.False(settings.EcoBehavior.LimitNvidiaFrameRate);
+        Assert.False(settings.EcoBehavior.DisableTurboBoost);
+    }
+
+    [Theory]
+    [InlineData(0, 60)]
+    [InlineData(30, 30)]
+    [InlineData(60, 60)]
+    [InlineData(144, 60)]
+    public void NvidiaEcoLimit_PreservesLowerExistingLimit(int current, int expected)
+    {
+        Assert.Equal(
+            (uint)expected,
+            NvidiaFrameRateController.GetEcoLimit((uint)current, maximumFrameRate: 60));
+    }
+
+    [Theory]
+    [InlineData(50, 50)]
+    [InlineData(60, 60)]
+    [InlineData(144, 60)]
+    public void DisplayEcoLimit_DoesNotRaiseLowerRefreshRate(int current, int expected)
+    {
+        Assert.Equal(
+            (uint)expected,
+            DisplayRefreshRateController.GetLimitedFrequency((uint)current, maximum: 60));
+    }
+
     private sealed class InstallerFixture : IDisposable
     {
         private readonly string _directory = Path.Combine(
