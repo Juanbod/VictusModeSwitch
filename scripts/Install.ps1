@@ -55,7 +55,20 @@ if (-not $ConfigureOnly -and -not $PreflightOnly) {
     }
 
     Stop-ScheduledTask -TaskName $trayTaskName -ErrorAction SilentlyContinue
-    Get-Process -Name 'VictusModeSwitch' -ErrorAction SilentlyContinue | Stop-Process -Force
+    $runningProcesses = @(Get-Process -Name 'VictusModeSwitch' -ErrorAction SilentlyContinue)
+    if ($runningProcesses.Count -gt 0) {
+        $runningProcesses | Stop-Process -Force
+        foreach ($runningProcess in $runningProcesses) {
+            try {
+                $null = $runningProcess.WaitForExit(10000)
+            } catch {
+                # The process may have exited before WaitForExit was reached.
+            }
+        }
+    }
+    if ($null -ne (Get-Process -Name 'VictusModeSwitch' -ErrorAction SilentlyContinue)) {
+        throw 'Victus Mode Switch did not exit before the update.'
+    }
     New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
     Copy-Item -Path (Join-Path $PublishDirectory '*') -Destination $installDirectory -Recurse -Force
     $installedScripts = Join-Path $installDirectory 'scripts'

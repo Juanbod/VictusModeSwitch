@@ -7,6 +7,7 @@
 - Add a General settings toggle that immediately enables or disables per-user Windows startup without UAC.
 - Reflect startup entries disabled through Windows Task Manager and clear its cached state when re-enabled.
 - Preserve the selected startup behavior across repairs, reinstalls, and automatic updates.
+- Wait for the running tray process to exit fully before replacing application files during an update.
 
 ## 2.3.0 - 2026-09-08
 
