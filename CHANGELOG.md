@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.2.0 - 2026-09-08
+
+- Add a configurable global keyboard shortcut that mirrors diamond-button single, double, and triple presses.
+- Record or clear the shortcut directly in General settings, with Windows conflict detection and automatic rollback.
+- Use native `RegisterHotKey` repeat suppression without a persistent low-level keyboard hook.
+- Keep an open Settings window synchronized when a diamond-button or keyboard gesture changes the mode or Max Fan.
+
 ## 2.1.0 - 2026-09-08
 
 - Add independent Eco options for a 60 Hz built-in display limit, a 60 FPS NVIDIA limit, and disabling CPU Turbo Boost.

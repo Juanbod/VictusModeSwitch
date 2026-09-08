@@ -26,6 +26,7 @@
 - One diamond-button press switches between **Standard** and **Performance**.
 - Two quick presses toggle **Max Fan**.
 - Three quick presses enable **Eco**.
+- A user-defined global keyboard shortcut can mirror the same one-, two-, and three-press gestures.
 - The tray menu provides direct, silent mode selection.
 - The settings UI follows the Windows light/dark theme and supports English, Russian, Ukrainian, or the Windows display language.
 - Optional Windows power tuning adjusts CPU, cooling, PCIe, Wi-Fi, and USB power preferences and restores the original values in Standard mode.
@@ -33,6 +34,8 @@
 - The built-in updater checks GitHub Releases and verifies the installer SHA-256 checksum before it can run.
 
 Holding the diamond button cannot be detected reliably on the tested laptop. Its firmware emits one WMI pulse without a release or repeat event, so Eco uses a triple press.
+
+To add the keyboard alternative, open **Settings > General**, click **Not assigned**, and press a combination containing `Ctrl`, `Alt`, `Shift`, or `Win`. Press `Esc` to cancel; use the delete button or press `Backspace`/`Delete` without modifiers to clear it. The shortcut is unassigned by default.
 
 ## Supported hardware
 
@@ -97,6 +100,7 @@ For each update the app downloads the installer and checksum from the same GitHu
 
 - `.NET 10` Windows Forms, self-contained `win-x64` release
 - HP WMI event listener for `EventID=29`, `EventData=8613`
+- Native Windows `RegisterHotKey` shortcut with repeat suppression; no keyboard hook
 - Per-user tray process with normal privileges
 - Direct Windows display APIs, NVIDIA NVAPI, and Windows power APIs for the optional Eco controls
 - Protected PowerShell broker under `Program Files`, launched without a console window, that accepts only fixed mode/fan requests and runs briefly at highest privileges
@@ -121,7 +125,7 @@ Requirements: Windows, [.NET 10 SDK](https://dotnet.microsoft.com/download/dotne
 
 ```powershell
 dotnet test .\VictusModeSwitch.slnx -c Release
-.\scripts\Build-Release.ps1 -Version 2.1.0
+.\scripts\Build-Release.ps1 -Version 2.2.0
 ```
 
 Artifacts are written to `artifacts/`. For hardware diagnostics:

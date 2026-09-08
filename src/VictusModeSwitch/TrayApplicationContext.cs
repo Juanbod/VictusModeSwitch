@@ -9,6 +9,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ModeController _controller;
     private readonly UpdateService _updateService = new();
     private readonly OmenKeyListener _keyListener = new();
+    private readonly GlobalHotkeyController _globalHotkey = new();
     private readonly OmenPressSequence _pressSequence = new();
     private readonly NotifyIcon _notifyIcon = new();
     private readonly Control _dispatcher = new();
@@ -92,7 +93,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _startupTimer.Tick += ReapplyAfterStartup;
         _updateTimer.Tick += CheckUpdatesAfterStartup;
         _keyListener.OmenKeyPressed += OnOmenKeyPressed;
+        _globalHotkey.Pressed += OnGlobalHotkeyPressed;
         _pressSequence.GestureRecognized += OnGestureRecognized;
+        var hotkeyResult = _globalHotkey.Apply(_store.Settings.KeyboardShortcut);
+        if (!hotkeyResult.Success)
+        {
+            _notifyIcon.ShowBalloonTip(
+                4500,
+                "Victus Mode Switch",
+                _localizer["ShortcutStartupFailed"],
+                ToolTipIcon.Warning);
+        }
+
         _keyListener.Start();
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
@@ -113,8 +125,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _keyListener.OmenKeyPressed -= OnOmenKeyPressed;
+        _globalHotkey.Pressed -= OnGlobalHotkeyPressed;
         _pressSequence.GestureRecognized -= OnGestureRecognized;
         _keyListener.Dispose();
+        _globalHotkey.Dispose();
         _pressSequence.Dispose();
         _startupTimer.Stop();
         _startupTimer.Dispose();
@@ -146,6 +160,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void OnOmenKeyPressed()
     {
+        QueueGesturePress();
+    }
+
+    private void OnGlobalHotkeyPressed()
+    {
+        QueueGesturePress();
+    }
+
+    private void QueueGesturePress()
+    {
         if (!_dispatcher.IsDisposed)
         {
             _dispatcher.BeginInvoke(new Action(_pressSequence.RegisterPress));
@@ -165,7 +189,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private async void OnGestureRecognized(OmenGesture gesture)
     {
-        Log.Info($"Распознан жест OMEN key: {gesture}");
+        Log.Info($"Распознан жест кнопки или хоткея: {gesture}");
         switch (gesture)
         {
             case OmenGesture.SinglePress:
@@ -219,7 +243,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         UpdateUi();
-        _settingsForm?.BeginInvoke(new Action(() => _settingsForm?.Invalidate(true)));
+        RefreshSettingsHardwareState();
         if (pendingToast is not null && !pendingToast.IsDisposed)
         {
             pendingToast.CompleteMode(result.Mode, result.Warnings, _localizer);
@@ -251,6 +275,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         UpdateUi();
+        RefreshSettingsHardwareState();
         if (pendingToast is not null && !pendingToast.IsDisposed)
         {
             pendingToast.CompleteMaxFan(result.Enabled, _localizer);
@@ -275,6 +300,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _notifyIcon.Icon = nextIcon;
         _currentIcon?.Dispose();
         _currentIcon = nextIcon;
+    }
+
+    private void RefreshSettingsHardwareState()
+    {
+        if (_settingsForm is not { IsDisposed: false, IsHandleCreated: true } settings)
+        {
+            return;
+        }
+
+        settings.BeginInvoke(new Action(settings.RefreshHardwareState));
     }
 
     private void UpdateLocalizedText()
@@ -372,7 +407,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        _settingsForm = new SettingsForm(_store, _controller, page);
+        _settingsForm = new SettingsForm(_store, _controller, page, _globalHotkey);
         _settingsForm.PreferencesChanged += OnPreferencesChanged;
         _settingsForm.HardwareStateChanged += UpdateUi;
         _settingsForm.InstallerStarted += ExitThread;

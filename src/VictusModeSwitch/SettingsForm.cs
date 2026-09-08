@@ -14,6 +14,7 @@ internal sealed class SettingsForm : Form
 {
     private readonly AppSettingsStore _store;
     private readonly ModeController _controller;
+    private readonly GlobalHotkeyController? _globalHotkey;
     private readonly UpdateService _updateService = new();
     private readonly ToolTip _toolTip = new();
     private readonly Dictionary<Control, string> _localizedControls = new();
@@ -33,6 +34,8 @@ internal sealed class SettingsForm : Form
     private readonly FluentToggle _maxFanToggle = new();
     private readonly FluentToggle _notificationsToggle = new();
     private readonly ComboBox _languageCombo = new();
+    private readonly Button _hotkeyButton = new();
+    private readonly Button _clearHotkeyButton = new();
     private readonly FluentToggle _ecoRefreshRateToggle = new();
     private readonly FluentToggle _ecoFrameRateToggle = new();
     private readonly FluentToggle _ecoTurboBoostToggle = new();
@@ -48,11 +51,17 @@ internal sealed class SettingsForm : Form
     private Localizer _localizer;
     private bool _loading;
     private bool _hardwareBusy;
+    private bool _capturingHotkey;
 
-    public SettingsForm(AppSettingsStore store, ModeController controller, SettingsPage initialPage = SettingsPage.General)
+    public SettingsForm(
+        AppSettingsStore store,
+        ModeController controller,
+        SettingsPage initialPage = SettingsPage.General,
+        GlobalHotkeyController? globalHotkey = null)
     {
         _store = store;
         _controller = controller;
+        _globalHotkey = globalHotkey;
         _store.Settings.Normalize();
         _localizer = new Localizer(store.Settings.Language);
 
@@ -63,6 +72,7 @@ internal sealed class SettingsForm : Form
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = true;
         MinimizeBox = true;
+        KeyPreview = true;
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
         Icon = AppIcon.Create(store.Settings.CurrentMode.AccentColor(), store.Settings.MaxFanEnabled);
@@ -80,6 +90,7 @@ internal sealed class SettingsForm : Form
             SystemEvents.UserPreferenceChanged -= UserPreferenceChanged;
             _powerApplyTimer.Stop();
             _powerApplyTimer.Dispose();
+            _globalHotkey?.SuppressInvocations = false;
             _toolTip.Dispose();
             Icon?.Dispose();
         };
@@ -91,6 +102,18 @@ internal sealed class SettingsForm : Form
     public event Action? InstallerStarted;
 
     public void ShowAboutPage() => SelectPage(SettingsPage.About);
+
+    public void RefreshHardwareState()
+    {
+        _loading = true;
+        _maxFanToggle.Checked = _controller.MaxFanEnabled;
+        _loading = false;
+        _modeStatus.ForeColor = WindowsTheme.Current.SecondaryText;
+        _modeStatus.Text = $"{_localizer["CurrentMode"]}: {_localizer.ModeDescription(_controller.CurrentMode)}";
+        UpdateModeUi();
+        ReplaceWindowIcon();
+        Invalidate(true);
+    }
 
     private void BuildLayout()
     {
@@ -154,7 +177,7 @@ internal sealed class SettingsForm : Form
     private void BuildGeneralPage()
     {
         ConfigurePage(_generalPage);
-        var layout = NewPageLayout(553);
+        var layout = NewPageLayout(625);
         AddHeader(layout, 0, "GeneralTitle", "GeneralSubtitle");
 
         var quickTitle = NewLabel(11f, FontStyle.Bold);
@@ -193,16 +216,20 @@ internal sealed class SettingsForm : Form
         _languageCombo.FlatStyle = FlatStyle.Flat;
         _languageCombo.Width = 192;
         layout.Controls.Add(CreateSettingRow("Language", "LanguageDescription", _languageCombo), 0, 7);
+        layout.Controls.Add(CreateSettingRow(
+            "KeyboardShortcut",
+            "KeyboardShortcutDescription",
+            CreateHotkeyControl()), 0, 8);
 
         var buttonTitle = NewLabel(11f, FontStyle.Bold);
         buttonTitle.Dock = DockStyle.Fill;
         Register(buttonTitle, "DiamondButton");
-        layout.Controls.Add(buttonTitle, 0, 8);
-        layout.Controls.Add(CreateMappingRow("SinglePress", "ToggleModes"), 0, 9);
-        layout.Controls.Add(CreateMappingRow("DoublePress", "ToggleMaxFan"), 0, 10);
-        layout.Controls.Add(CreateMappingRow("TriplePress", "EnableEco"), 0, 11);
+        layout.Controls.Add(buttonTitle, 0, 9);
+        layout.Controls.Add(CreateMappingRow("SinglePress", "ToggleModes"), 0, 10);
+        layout.Controls.Add(CreateMappingRow("DoublePress", "ToggleMaxFan"), 0, 11);
+        layout.Controls.Add(CreateMappingRow("TriplePress", "EnableEco"), 0, 12);
 
-        SetRows(layout, 80, 32, 48, 24, 1, 68, 68, 68, 38, 42, 42, 42);
+        SetRows(layout, 80, 32, 48, 24, 1, 68, 68, 68, 72, 38, 42, 42, 42);
         _generalPage.Controls.Add(layout);
     }
 
@@ -300,6 +327,9 @@ internal sealed class SettingsForm : Form
         _notificationsToggle.CheckedChanged += (_, _) => SavePreference(() =>
             _store.Settings.ShowNotifications = _notificationsToggle.Checked);
         _languageCombo.SelectedIndexChanged += ChangeLanguage;
+        _hotkeyButton.Click += (_, _) => ToggleHotkeyCapture();
+        _clearHotkeyButton.Click += (_, _) => SaveHotkey(new HotkeyBinding());
+        Deactivate += (_, _) => CancelHotkeyCapture();
         _ecoRefreshRateToggle.CheckedChanged += async (_, _) => await ChangeEcoBehaviorAsync();
         _ecoFrameRateToggle.CheckedChanged += async (_, _) => await ChangeEcoBehaviorAsync();
         _ecoTurboBoostToggle.CheckedChanged += async (_, _) => await ChangeEcoBehaviorAsync();
@@ -330,6 +360,7 @@ internal sealed class SettingsForm : Form
         _ecoBatteryMaximum.Value = _store.Settings.PowerTuning.EcoBatteryMaximumProcessor;
         _updateToggle.Checked = _store.Settings.CheckForUpdates;
         _loading = false;
+        UpdateHotkeyUi();
         UpdateModeUi();
         UpdatePowerControls();
     }
@@ -358,11 +389,16 @@ internal sealed class SettingsForm : Form
         _updateStatus.Text = _localizer.Format("Version", AppVersion.Display);
         _toolTip.SetToolTip(_maxFanToggle, _localizer["MaxFan"]);
         _toolTip.SetToolTip(_notificationsToggle, _localizer["Notifications"]);
+        _toolTip.SetToolTip(_hotkeyButton, _localizer["RecordShortcut"]);
+        _toolTip.SetToolTip(_clearHotkeyButton, _localizer["ClearShortcut"]);
+        _hotkeyButton.AccessibleName = _localizer["RecordShortcut"];
+        _clearHotkeyButton.AccessibleName = _localizer["ClearShortcut"];
         _toolTip.SetToolTip(_ecoRefreshRateToggle, _localizer["EcoRefreshRate"]);
         _toolTip.SetToolTip(_ecoFrameRateToggle, _localizer["EcoFrameRate"]);
         _toolTip.SetToolTip(_ecoTurboBoostToggle, _localizer["EcoTurboBoost"]);
         _toolTip.SetToolTip(_powerTuningToggle, _localizer["PowerTuning"]);
         _toolTip.SetToolTip(_updateToggle, _localizer["CheckForUpdates"]);
+        UpdateHotkeyUi();
         UpdateModeUi();
     }
 
@@ -423,6 +459,9 @@ internal sealed class SettingsForm : Form
 
         FluentUi.StyleButton(_checkUpdateButton, palette);
         FluentUi.StyleButton(_githubButton, palette);
+        FluentUi.StyleButton(_hotkeyButton, palette);
+        FluentUi.StyleButton(_clearHotkeyButton, palette);
+        _clearHotkeyButton.Font = new Font("Segoe Fluent Icons", 10f, FontStyle.Regular, GraphicsUnit.Point);
         StyleModeButtons(palette);
         Invalidate(true);
     }
@@ -442,6 +481,132 @@ internal sealed class SettingsForm : Form
             _ => _generalPage
         };
         selected.BringToFront();
+    }
+
+    protected override bool ProcessCmdKey(ref Message message, Keys keyData)
+    {
+        if (!_capturingHotkey)
+        {
+            return base.ProcessCmdKey(ref message, keyData);
+        }
+
+        CaptureHotkey(keyData);
+        return true;
+    }
+
+    private void ToggleHotkeyCapture()
+    {
+        if (_capturingHotkey)
+        {
+            CancelHotkeyCapture();
+            return;
+        }
+
+        _capturingHotkey = true;
+        if (_globalHotkey is not null)
+        {
+            _globalHotkey.SuppressInvocations = true;
+        }
+
+        _hotkeyButton.Text = _localizer["PressShortcut"];
+        _hotkeyButton.Focus();
+    }
+
+    private void CaptureHotkey(Keys keyData)
+    {
+        var keyCode = (int)(keyData & Keys.KeyCode);
+        var windowsKeyDown = GlobalHotkeyController.IsWindowsKeyDown();
+        var hasStandardModifier = (keyData & Keys.Modifiers) != Keys.None;
+        if (keyCode == (int)Keys.Escape && !hasStandardModifier && !windowsKeyDown)
+        {
+            CancelHotkeyCapture();
+            return;
+        }
+
+        if ((keyCode == (int)Keys.Back || keyCode == (int)Keys.Delete) &&
+            !hasStandardModifier &&
+            !windowsKeyDown)
+        {
+            SaveHotkey(new HotkeyBinding());
+            return;
+        }
+
+        if (HotkeyBinding.IsModifierKey(keyCode))
+        {
+            return;
+        }
+
+        var binding = HotkeyBinding.FromKeyData(keyData, windowsKeyDown);
+        if (!binding.IsConfigured)
+        {
+            _hotkeyButton.Text = _localizer["ShortcutNeedsModifier"];
+            System.Media.SystemSounds.Beep.Play();
+            return;
+        }
+
+        SaveHotkey(binding);
+    }
+
+    private void SaveHotkey(HotkeyBinding binding)
+    {
+        var previous = _store.Settings.KeyboardShortcut;
+        var result = _globalHotkey?.Apply(binding) ?? HotkeyRegistrationResult.Registered();
+        _capturingHotkey = false;
+        if (_globalHotkey is not null)
+        {
+            _globalHotkey.SuppressInvocations = false;
+        }
+
+        if (!result.Success)
+        {
+            UpdateHotkeyUi();
+            var message = result.ErrorCode == HotkeyRegistrationResult.AlreadyRegisteredError
+                ? _localizer["ShortcutConflict"]
+                : _localizer.Format("ShortcutRegistrationFailed", result.ErrorCode);
+            MessageBox.Show(this, message, "Victus Mode Switch", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        try
+        {
+            _store.Settings.KeyboardShortcut = binding.Normalize();
+            _store.Save();
+        }
+        catch
+        {
+            _store.Settings.KeyboardShortcut = previous;
+            _globalHotkey?.Apply(previous);
+            throw;
+        }
+
+        UpdateHotkeyUi();
+        PreferencesChanged?.Invoke();
+    }
+
+    private void CancelHotkeyCapture()
+    {
+        if (!_capturingHotkey)
+        {
+            return;
+        }
+
+        _capturingHotkey = false;
+        if (_globalHotkey is not null)
+        {
+            _globalHotkey.SuppressInvocations = false;
+        }
+
+        UpdateHotkeyUi();
+    }
+
+    private void UpdateHotkeyUi()
+    {
+        _hotkeyButton.Text = _capturingHotkey
+            ? _localizer["PressShortcut"]
+            : _store.Settings.KeyboardShortcut.IsConfigured
+                ? _store.Settings.KeyboardShortcut.ToDisplayString()
+                : _localizer["ShortcutNotAssigned"];
+        _clearHotkeyButton.Enabled = _store.Settings.KeyboardShortcut.IsConfigured;
     }
 
     private async Task ApplyModeAsync(AppMode mode)
@@ -879,6 +1044,26 @@ internal sealed class SettingsForm : Form
         row.Controls.Add(separator, 0, 1);
         row.SetColumnSpan(separator, 2);
         return row;
+    }
+
+    private FlowLayoutPanel CreateHotkeyControl()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = false,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Margin = Padding.Empty,
+            Size = new Size(244, 35)
+        };
+        _hotkeyButton.Size = new Size(204, 34);
+        _hotkeyButton.Margin = Padding.Empty;
+        _clearHotkeyButton.Size = new Size(34, 34);
+        _clearHotkeyButton.Margin = new Padding(6, 0, 0, 0);
+        _clearHotkeyButton.Text = "\uE74D";
+        panel.Controls.Add(_hotkeyButton);
+        panel.Controls.Add(_clearHotkeyButton);
+        return panel;
     }
 
     private static FlowLayoutPanel PercentControl(NumericUpDown input)

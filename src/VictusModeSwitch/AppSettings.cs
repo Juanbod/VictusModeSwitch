@@ -11,6 +11,7 @@ internal sealed class AppSettings
     public bool ShowNotifications { get; set; } = true;
     public bool CheckForUpdates { get; set; } = true;
     public DateTimeOffset? LastUpdateCheckUtc { get; set; }
+    public HotkeyBinding KeyboardShortcut { get; set; } = new();
     public PowerTuningSettings PowerTuning { get; set; } = new();
     public WindowsPowerBackup WindowsPower { get; set; } = new();
     public EcoBehaviorSettings EcoBehavior { get; set; } = new();
@@ -40,6 +41,7 @@ internal sealed class AppSettings
             "en" => "en",
             _ => "system"
         };
+        KeyboardShortcut = (KeyboardShortcut ?? new HotkeyBinding()).Normalize();
         PowerTuning ??= new PowerTuningSettings();
         PowerTuning.EcoAcMaximumProcessor = Math.Clamp(PowerTuning.EcoAcMaximumProcessor, 5, 100);
         PowerTuning.EcoBatteryMaximumProcessor = Math.Clamp(PowerTuning.EcoBatteryMaximumProcessor, 5, 100);

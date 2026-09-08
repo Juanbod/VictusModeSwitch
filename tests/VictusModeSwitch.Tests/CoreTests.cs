@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Windows.Forms;
 
 namespace VictusModeSwitch.Tests;
 
@@ -119,6 +120,67 @@ public sealed class CoreTests
         Assert.False(settings.EcoBehavior.LimitDisplayRefreshRate);
         Assert.False(settings.EcoBehavior.LimitNvidiaFrameRate);
         Assert.False(settings.EcoBehavior.DisableTurboBoost);
+    }
+
+    [Fact]
+    public void AppSettings_NormalizesMissingKeyboardShortcut()
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>("{\"KeyboardShortcut\":null}")!;
+
+        settings.Normalize();
+
+        Assert.NotNull(settings.KeyboardShortcut);
+        Assert.False(settings.KeyboardShortcut.IsConfigured);
+    }
+
+    [Fact]
+    public void HotkeyBinding_RequiresModifierAndFormatsCombination()
+    {
+        var withoutModifier = new HotkeyBinding { VirtualKey = (int)Keys.K }.Normalize();
+        var binding = new HotkeyBinding
+        {
+            VirtualKey = (int)Keys.K,
+            Modifiers = GlobalHotkeyModifiers.Control | GlobalHotkeyModifiers.Alt
+        }.Normalize();
+
+        Assert.False(withoutModifier.IsConfigured);
+        Assert.True(binding.IsConfigured);
+        Assert.Equal("Ctrl + Alt + K", binding.ToDisplayString());
+    }
+
+    [Fact]
+    public void HotkeyBinding_RejectsModifierOnlyKey()
+    {
+        var binding = new HotkeyBinding
+        {
+            VirtualKey = (int)Keys.LControlKey,
+            Modifiers = GlobalHotkeyModifiers.Control
+        }.Normalize();
+
+        Assert.False(binding.IsConfigured);
+    }
+
+    [Fact]
+    public void GlobalHotkeyController_RejectsConflictAndRestoresPreviousBinding()
+    {
+        var occupied = new HotkeyBinding
+        {
+            VirtualKey = (int)Keys.F24,
+            Modifiers = GlobalHotkeyModifiers.Control |
+                        GlobalHotkeyModifiers.Alt |
+                        GlobalHotkeyModifiers.Shift
+        };
+        var fallback = occupied with { VirtualKey = (int)Keys.F23 };
+        using var owner = new GlobalHotkeyController(writeLog: false);
+        using var subject = new GlobalHotkeyController(writeLog: false);
+
+        Assert.True(owner.Apply(occupied).Success);
+        Assert.True(subject.Apply(fallback).Success);
+        var result = subject.Apply(occupied);
+
+        Assert.False(result.Success);
+        Assert.Equal(HotkeyRegistrationResult.AlreadyRegisteredError, result.ErrorCode);
+        Assert.Equal(fallback, subject.Binding);
     }
 
     [Theory]
