@@ -5,7 +5,7 @@
 <h1 align="center">Victus Mode Switch</h1>
 
 <p align="center">
-  A lightweight Windows 11 tray app that replaces the basic performance controls of OMEN Gaming Hub on one supported HP Victus model.
+  A lightweight Windows 11 tray app that replaces the basic performance controls of OMEN Gaming Hub.
 </p>
 
 <p align="center">
