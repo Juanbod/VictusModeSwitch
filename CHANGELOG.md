@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Document the OMEN Gaming Hub to HP BIOS communication path, known command map, and board `8A4F` capability data.
+- Add a read-only interface inventory script that never invokes a BIOS method.
+
 ## 2.0.2 - 2026-09-08
 
 - Restore saved OMEN scheduled tasks correctly when uninstalling through Windows PowerShell 5.1.

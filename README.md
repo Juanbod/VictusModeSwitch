@@ -91,6 +91,16 @@ For each update the app downloads the installer and checksum from the same GitHu
 
 Idle resource use on the tested system is approximately 15-25 MB of private memory and effectively zero CPU while waiting for events.
 
+## BIOS protocol research
+
+The documented [HP OMEN BIOS communication path](docs/hp-bios-protocol.md) covers the Gaming Hub HSA/RPC layer, native HP WMI envelope, command map, `8A4F` capability block, safety boundaries, and promising read-only features. A [Russian version](docs/hp-bios-protocol.ru.md) is also available.
+
+To collect a shareable hardware/interface snapshot without invoking any BIOS method:
+
+```powershell
+.\scripts\Inspect-HpBiosInterface.ps1 -OutputPath .\artifacts\hp-bios-interface.json
+```
+
 ## Build
 
 Requirements: Windows, [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), and [Inno Setup 6](https://jrsoftware.org/isinfo.php).
