@@ -58,6 +58,12 @@ internal sealed class ModeController
 
     public Task<FanApplyResult> ToggleMaxFanAsync() => SetMaxFanAsync(!_store.Settings.MaxFanEnabled);
 
+    public async Task WaitForIdleAsync()
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        _gate.Release();
+    }
+
     public async Task<FanApplyResult> SetMaxFanAsync(bool enabled)
     {
         await _gate.WaitAsync();

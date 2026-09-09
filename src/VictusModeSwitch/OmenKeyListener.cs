@@ -21,11 +21,14 @@ internal sealed class OmenKeyListener : IDisposable
     private const uint VkOmen157 = 0x9D;
     private const uint VkOemOmen = 0xFF;
 
+    private readonly object _watcherSync = new();
     private ManagementEventWatcher? _watcher;
     private KeyboardHookProc? _hookProc;
     private IntPtr _hookHandle;
     private long _lastPressTicks;
     private int _keyboardPressed;
+    private volatile bool _keyboardHookActive;
+    private volatile bool _disposed;
     private readonly bool _diagnosticLogging;
 
     public OmenKeyListener(bool diagnosticLogging = false)
@@ -38,54 +41,111 @@ internal sealed class OmenKeyListener : IDisposable
 
     public void Start()
     {
-        var wmiStarted = StartWmiListener();
-        if (_diagnosticLogging || !wmiStarted)
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var keyboardStarted = StartKeyboardHook();
+        if (keyboardStarted)
         {
-            StartKeyboardHook();
+            Log.Info("OMEN key: основной keyboard hook активен, HP WMI запускается в фоне как резерв");
         }
         else
         {
-            Log.Info("Клавиатурный hook не требуется: OMEN key принимается напрямую через HP WMI");
+            Log.Warning("OMEN key: keyboard hook недоступен, запускается резервный HP WMI");
         }
+
+        _ = Task.Run(() =>
+        {
+            var wmiStarted = StartWmiListener();
+            if (!keyboardStarted && wmiStarted)
+            {
+                Log.Warning("OMEN key: используется резервный канал HP WMI");
+            }
+            else if (!keyboardStarted && !wmiStarted && !_disposed)
+            {
+                Log.Warning("OMEN key: ни keyboard hook, ни HP WMI не удалось запустить");
+            }
+        });
     }
 
     private bool StartWmiListener()
     {
+        ManagementEventWatcher? watcher = null;
         try
         {
             var scope = new ManagementScope(
                 "\\\\.\\root\\wmi",
                 new ConnectionOptions { EnablePrivileges = true });
             scope.Connect();
-            _watcher = new ManagementEventWatcher(scope, new WqlEventQuery("SELECT * FROM hpqBEvnt"));
-            _watcher.EventArrived += OnEventArrived;
-            _watcher.Start();
+            watcher = new ManagementEventWatcher(scope, new WqlEventQuery("SELECT * FROM hpqBEvnt"));
+            watcher.EventArrived += OnEventArrived;
+            watcher.Start();
+
+            lock (_watcherSync)
+            {
+                if (!_disposed)
+                {
+                    _watcher = watcher;
+                    watcher = null;
+                }
+            }
+
+            if (watcher is not null)
+            {
+                return false;
+            }
+
             Log.Info("Слушатель HP WMI запущен: EventID=29, EventData=8613, EnablePrivileges=true");
             return true;
         }
         catch (Exception exception)
         {
-            Log.Error("HP WMI-события недоступны; включается клавиатурный hook", exception);
+            if (!_disposed)
+            {
+                Log.Error("HP WMI-события недоступны", exception);
+            }
+
             return false;
+        }
+        finally
+        {
+            if (watcher is not null)
+            {
+                watcher.EventArrived -= OnEventArrived;
+                try
+                {
+                    watcher.Stop();
+                }
+                catch
+                {
+                }
+
+                watcher.Dispose();
+            }
         }
     }
 
     public void Dispose()
     {
-        if (_watcher is not null)
+        _disposed = true;
+        ManagementEventWatcher? watcher;
+        lock (_watcherSync)
+        {
+            watcher = _watcher;
+            _watcher = null;
+        }
+
+        if (watcher is not null)
         {
             try
             {
-                _watcher.Stop();
+                watcher.Stop();
             }
             catch (Exception exception)
             {
                 Log.Warning($"Не удалось штатно остановить HP WMI listener: {exception.Message}");
             }
 
-            _watcher.EventArrived -= OnEventArrived;
-            _watcher.Dispose();
-            _watcher = null;
+            watcher.EventArrived -= OnEventArrived;
+            watcher.Dispose();
         }
 
         if (_hookHandle != IntPtr.Zero)
@@ -94,10 +154,11 @@ internal sealed class OmenKeyListener : IDisposable
             _hookHandle = IntPtr.Zero;
         }
 
+        _keyboardHookActive = false;
         _hookProc = null;
     }
 
-    private void StartKeyboardHook()
+    private bool StartKeyboardHook()
     {
         _hookProc = HookCallback;
         using var process = Process.GetCurrentProcess();
@@ -107,14 +168,22 @@ internal sealed class OmenKeyListener : IDisposable
         if (_hookHandle == IntPtr.Zero)
         {
             Log.Warning($"Клавиатурный hook не запущен, код Windows {Marshal.GetLastWin32Error()}");
-            return;
+            _hookProc = null;
+            return false;
         }
 
-        Log.Info("Резервный low-level keyboard hook запущен");
+        _keyboardHookActive = true;
+        Log.Info("Low-level keyboard hook запущен");
+        return true;
     }
 
     private void OnEventArrived(object sender, EventArrivedEventArgs eventArgs)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         try
         {
             var eventId = Convert.ToUInt32(eventArgs.NewEvent["EventID"]);
@@ -123,7 +192,10 @@ internal sealed class OmenKeyListener : IDisposable
             if (eventId == OmenEventId && eventData == OmenEventData)
             {
                 var active = eventArgs.NewEvent.Properties["Active"]?.Value;
-                SignalOmenKey($"WMI Active={active ?? "n/a"}");
+                if (!_keyboardHookActive)
+                {
+                    SignalOmenKey($"WMI Active={active ?? "n/a"}");
+                }
             }
         }
         catch (Exception exception)

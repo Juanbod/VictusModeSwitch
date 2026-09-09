@@ -220,6 +220,20 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public void BiosBroker_RetriesTransientCommunicationFailuresOnly()
+    {
+        Assert.True(ElevatedBiosBroker.IsTransientHardwareFailure(new TimeoutException()));
+        Assert.True(ElevatedBiosBroker.IsTransientHardwareFailure(new IOException()));
+        Assert.True(ElevatedBiosBroker.IsTransientHardwareFailure(
+            new InvalidOperationException("The BIOS task returned an empty response.")));
+        Assert.False(ElevatedBiosBroker.IsTransientHardwareFailure(
+            new InvalidOperationException("Unsupported system board 'FFFF'.")));
+        Assert.False(ElevatedBiosBroker.IsTransientHardwareFailure(
+            new InvalidOperationException("Unsupported HP Thermal Policy V1.")));
+        Assert.False(ElevatedBiosBroker.IsTransientHardwareFailure(new UnauthorizedAccessException()));
+    }
+
+    [Fact]
     public void HotkeyBinding_RequiresModifierAndFormatsCombination()
     {
         var withoutModifier = new HotkeyBinding { VirtualKey = (int)Keys.K }.Normalize();

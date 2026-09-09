@@ -136,7 +136,13 @@ internal static class Program
         listener.OmenKeyPressed += () => Interlocked.Increment(ref presses);
         listener.Start();
         Log.Info($"DIAG: ожидание событий {seconds} с");
-        Thread.Sleep(TimeSpan.FromSeconds(seconds));
+        var deadline = DateTime.UtcNow.AddSeconds(seconds);
+        while (DateTime.UtcNow < deadline)
+        {
+            Application.DoEvents();
+            Thread.Sleep(10);
+        }
+
         Log.Info($"DIAG: ожидание завершено, нажатий OMEN key={presses}");
         if (presses == 0)
         {

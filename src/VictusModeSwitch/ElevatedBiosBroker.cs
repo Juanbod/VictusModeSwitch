@@ -13,23 +13,61 @@ internal sealed class ElevatedBiosBroker
     private static readonly SemaphoreSlim TaskGate = new(1, 1);
     private static readonly JsonSerializerOptions JsonOptions = new();
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    private static readonly TimeSpan[] HardwareRetryDelays =
+    {
+        TimeSpan.FromMilliseconds(350),
+        TimeSpan.FromMilliseconds(900)
+    };
 
     public async Task ApplyAsync(AppMode mode, bool maxFanEnabled)
     {
         AppPaths.EnsureCreated();
-        var request = new BiosTaskRequest(
-            Guid.NewGuid(),
-            ElevatedBrokerOperation.ApplyHardware.ToString(),
-            mode.ToString(),
-            maxFanEnabled,
-            Array.Empty<string>(),
-            DateTimeOffset.UtcNow);
-
-        var result = await RunAsync(request).ConfigureAwait(false);
-        if (result.MaxFanEnabled != maxFanEnabled)
+        for (var attempt = 0; ; attempt++)
         {
-            throw new InvalidOperationException("BIOS не подтвердил запрошенное состояние Max Fan.");
+            try
+            {
+                var request = new BiosTaskRequest(
+                    Guid.NewGuid(),
+                    ElevatedBrokerOperation.ApplyHardware.ToString(),
+                    mode.ToString(),
+                    maxFanEnabled,
+                    Array.Empty<string>(),
+                    DateTimeOffset.UtcNow);
+
+                var result = await RunAsync(request).ConfigureAwait(false);
+                if (result.MaxFanEnabled != maxFanEnabled)
+                {
+                    throw new InvalidOperationException("BIOS не подтвердил запрошенное состояние Max Fan.");
+                }
+
+                return;
+            }
+            catch (Exception exception) when (
+                attempt < HardwareRetryDelays.Length && IsTransientHardwareFailure(exception))
+            {
+                var delay = HardwareRetryDelays[attempt];
+                Log.Warning(
+                    $"BIOS временно недоступен, повтор {attempt + 2}/{HardwareRetryDelays.Length + 1} " +
+                    $"через {delay.TotalMilliseconds:0} мс: {exception.Message}");
+                await Task.Delay(delay).ConfigureAwait(false);
+            }
         }
+    }
+
+    internal static bool IsTransientHardwareFailure(Exception exception)
+    {
+        if (exception is TimeoutException or IOException)
+        {
+            return true;
+        }
+
+        if (exception is not InvalidOperationException)
+        {
+            return false;
+        }
+
+        return !exception.Message.Contains("Unsupported system board", StringComparison.OrdinalIgnoreCase) &&
+               !exception.Message.Contains("Thermal Policy", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task SetHpServicesAsync(bool stop, IEnumerable<string> services)

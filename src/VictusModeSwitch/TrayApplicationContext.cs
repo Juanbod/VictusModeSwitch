@@ -28,13 +28,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _settingsSignalTimer = new() { Interval = 100 };
     private readonly System.Threading.Timer _cleanupTimer;
     private readonly EventWaitHandle _openSettingsEvent;
+    private readonly CancellationTokenSource _shutdown = new();
     private Localizer _localizer;
     private Icon? _currentIcon;
     private ModeToastForm? _toast;
     private SettingsForm? _settingsForm;
     private UpdateDialog? _updateDialog;
-    private bool _exiting;
+    private volatile bool _exiting;
     private bool _updateBusy;
+    private int _interactiveHardwareCommands;
 
     public TrayApplicationContext()
     {
@@ -107,13 +109,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         _keyListener.Start();
-        _ = SyncHpServiceSuppressionAsync(showError: false);
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        var systemUptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
         Log.Info(
             $"Victus Mode Switch {AppVersion.Display} запущен, режим: {_controller.CurrentMode}, " +
             $"Max Fan: {_controller.MaxFanEnabled}, Power tuning: {_store.Settings.PowerTuning.Enabled}, " +
-            $"HP services suppressed: {_store.Settings.SuppressHpAppServices}");
+            $"HP services suppressed: {_store.Settings.SuppressHpAppServices}, " +
+            $"Windows uptime: {systemUptime:c}");
         _startupTimer.Start();
     }
 
@@ -125,6 +128,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         _exiting = true;
+        _shutdown.Cancel();
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _keyListener.OmenKeyPressed -= OnOmenKeyPressed;
@@ -142,6 +146,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _settingsSignalTimer.Dispose();
         _cleanupTimer.Dispose();
         _hpServiceSuppressor.Dispose();
+        _shutdown.Dispose();
         _openSettingsEvent.Dispose();
         _toast?.Close();
         _settingsForm?.Close();
@@ -225,6 +230,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private async Task ApplyModeAsync(AppMode mode, bool reapply = false, bool showToast = true)
     {
+        if (!reapply)
+        {
+            Interlocked.Increment(ref _interactiveHardwareCommands);
+        }
+
         ModeToastForm? pendingToast = null;
         if (showToast && _store.Settings.ShowNotifications)
         {
@@ -256,6 +266,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private async Task ToggleMaxFanAsync(bool showToast = true)
     {
+        Interlocked.Increment(ref _interactiveHardwareCommands);
         var requested = !_controller.MaxFanEnabled;
         ModeToastForm? pendingToast = null;
         if (showToast && _store.Settings.ShowNotifications)
@@ -331,8 +342,39 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private async void ReapplyAfterStartup(object? sender, EventArgs eventArgs)
     {
         _startupTimer.Stop();
-        await ApplyModeAsync(_controller.CurrentMode, reapply: true, showToast: false);
+        if (Volatile.Read(ref _interactiveHardwareCommands) == 0)
+        {
+            await ApplyModeAsync(_controller.CurrentMode, reapply: true, showToast: false);
+        }
+        else
+        {
+            Log.Info("Стартовое повторное применение пропущено: уже получена команда пользователя");
+        }
+
+        _ = StartHpServiceSuppressionAfterStartupAsync();
         _updateTimer.Start();
+    }
+
+    private async Task StartHpServiceSuppressionAfterStartupAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), _shutdown.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!_exiting)
+        {
+            await _controller.WaitForIdleAsync().ConfigureAwait(false);
+        }
+
+        if (!_exiting)
+        {
+            await SyncHpServiceSuppressionAsync(showError: false).ConfigureAwait(false);
+        }
     }
 
     private async void CheckUpdatesAfterStartup(object? sender, EventArgs eventArgs)

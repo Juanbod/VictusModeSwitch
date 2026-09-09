@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.4.1 - 2026-09-09
+
+- Capture the dedicated diamond key through its verified keyboard scan code from the start of the tray process, with HP WMI retained as a fallback.
+- Prevent the delayed startup reapply from overwriting a mode or Max Fan command already requested by the user.
+- Apply the saved BIOS state before pausing optional HP services so service cleanup cannot delay cold-start hardware initialization.
+- Retry short-lived BIOS task and WMI communication failures with a small bounded backoff.
+
 ## 2.4.0 - 2026-09-09
 
 - Add a General settings toggle that immediately enables or disables per-user Windows startup without UAC.
