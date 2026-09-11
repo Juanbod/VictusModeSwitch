@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "2.4.1"
+  #define AppVersion "2.4.2"
 #endif
 
 #define AppName "Victus Mode Switch"
@@ -76,6 +76,9 @@ Type: filesandordirs; Name: "{app}\Broker"
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Parameters: "--settings"; WorkingDir: "{app}"
 Name: "{autoprograms}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
+[Run]
+Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Flags: nowait runasoriginaluser
+
 [CustomMessages]
 english.ConfiguringApp=Configuring the hardware helper and startup entry...
 russian.ConfiguringApp=Настройка аппаратного помощника и автозапуска...
@@ -134,7 +137,7 @@ var
 begin
   WizardForm.StatusLabel.Caption := ExpandConstant('{cm:ConfiguringApp}');
   Parameters := '-NoProfile -ExecutionPolicy Bypass -File "' +
-    ExpandConstant('{app}\scripts\Install.ps1') + '" -ConfigureOnly';
+    ExpandConstant('{app}\scripts\Install.ps1') + '" -ConfigureOnly -NoStart';
   if WizardIsTaskSelected('pauseomen') then
     Parameters := Parameters + ' -PauseOmen';
 

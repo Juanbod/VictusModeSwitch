@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 2.4.2 - 2026-09-11
+
+- Relaunch the tray application from Inno Setup's final run phase after installs and silent automatic updates complete.
+- Keep hardware and startup configuration separate from process launch so setup cannot leave the diamond key without a listener.
+
 ## 2.4.1 - 2026-09-09
 
 - Capture the dedicated diamond key through its verified keyboard scan code from the start of the tray process, with HP WMI retained as a fallback.
