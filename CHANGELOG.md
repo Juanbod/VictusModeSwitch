@@ -8,6 +8,7 @@
 - Reconnect the diamond-button HP WMI listener with increasing delays instead of giving up after one attempt.
 - Restore services left paused by an interrupted session before hardware initialization, then defer optional HP service suppression until BIOS and WMI are ready.
 - Record UI, background-task, process-lifecycle, and periodic health diagnostics for startup failures that previously left no crash evidence.
+- Replace the large extracting single-file executable with a self-contained multi-file package so Microsoft Defender cannot hold the app before .NET starts during sign-in.
 
 ## 2.4.3 - 2026-09-11
 

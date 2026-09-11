@@ -31,8 +31,7 @@ try {
         -r win-x64 `
         --self-contained true `
         -p:Version=$Version `
-        -p:PublishSingleFile=true `
-        -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:PublishSingleFile=false `
         -p:PublishReadyToRun=false `
         -p:DebugType=embedded `
         -o .\artifacts\publish
