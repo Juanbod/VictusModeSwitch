@@ -21,12 +21,28 @@ internal sealed class OmenKeyListener : IDisposable
     private const uint VkOmen157 = 0x9D;
     private const uint VkOemOmen = 0xFF;
 
+    private static readonly TimeSpan[] WmiRetryDelays =
+    {
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(3),
+        TimeSpan.FromSeconds(5),
+        TimeSpan.FromSeconds(10),
+        TimeSpan.FromSeconds(20),
+        TimeSpan.FromSeconds(30),
+        TimeSpan.FromMinutes(1)
+    };
+
     private readonly object _watcherSync = new();
     private readonly OmenKeyDebouncer _debouncer = new();
+    private readonly CancellationTokenSource _wmiCancellation = new();
+    private readonly TaskCompletionSource _wmiReady = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private ManagementEventWatcher? _watcher;
+    private Task? _wmiStartupTask;
     private KeyboardHookProc? _hookProc;
     private IntPtr _hookHandle;
     private int _keyboardPressed;
+    private int _started;
     private volatile bool _disposed;
     private readonly bool _diagnosticLogging;
 
@@ -38,9 +54,19 @@ internal sealed class OmenKeyListener : IDisposable
     public event Action<uint, uint>? EventObserved;
     public event Action? OmenKeyPressed;
 
+    public bool IsWmiListenerReady => _wmiReady.Task.IsCompletedSuccessfully;
+
+    public Task WaitForWmiListenerAsync(CancellationToken cancellationToken) =>
+        _wmiReady.Task.WaitAsync(cancellationToken);
+
     public void Start()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (Interlocked.Exchange(ref _started, 1) != 0)
+        {
+            return;
+        }
+
         var keyboardStarted = StartKeyboardHook();
         if (keyboardStarted)
         {
@@ -51,18 +77,55 @@ internal sealed class OmenKeyListener : IDisposable
             Log.Warning("OMEN key: keyboard hook недоступен, запускается резервный HP WMI");
         }
 
-        _ = Task.Run(() =>
+        var cancellationToken = _wmiCancellation.Token;
+        _wmiStartupTask = Task.Run(async () =>
         {
-            var wmiStarted = StartWmiListener();
-            if (!keyboardStarted && wmiStarted)
+            try
             {
-                Log.Warning("OMEN key: используется резервный канал HP WMI");
+                await StartWmiListenerWithRetryAsync(keyboardStarted, cancellationToken)
+                    .ConfigureAwait(false);
             }
-            else if (!keyboardStarted && !wmiStarted && !_disposed)
+            catch (Exception exception) when (!_disposed)
             {
-                Log.Warning("OMEN key: ни keyboard hook, ни HP WMI не удалось запустить");
+                Log.Error("OMEN key: цикл подключения HP WMI завершился ошибкой", exception);
             }
         });
+    }
+
+    private async Task StartWmiListenerWithRetryAsync(
+        bool keyboardStarted,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; !cancellationToken.IsCancellationRequested; attempt++)
+        {
+            if (StartWmiListener())
+            {
+                if (!keyboardStarted)
+                {
+                    Log.Warning("OMEN key: используется резервный канал HP WMI");
+                }
+
+                if (attempt > 1)
+                {
+                    Log.Info($"OMEN key: HP WMI восстановлен с попытки {attempt}");
+                }
+
+                _wmiReady.TrySetResult();
+                return;
+            }
+
+            var delay = WmiRetryDelays[Math.Min(attempt - 1, WmiRetryDelays.Length - 1)];
+            Log.Warning(
+                $"OMEN key: HP WMI ещё не готов, повтор {attempt + 1} через {delay.TotalSeconds:0} с");
+            try
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+        }
     }
 
     private bool StartWmiListener()
@@ -128,6 +191,8 @@ internal sealed class OmenKeyListener : IDisposable
     public void Dispose()
     {
         _disposed = true;
+        _wmiCancellation.Cancel();
+        _wmiReady.TrySetCanceled();
         ManagementEventWatcher? watcher;
         lock (_watcherSync)
         {
@@ -157,6 +222,7 @@ internal sealed class OmenKeyListener : IDisposable
         }
 
         _hookProc = null;
+        _wmiCancellation.Dispose();
     }
 
     private bool StartKeyboardHook()

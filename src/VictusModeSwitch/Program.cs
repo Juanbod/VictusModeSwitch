@@ -12,9 +12,16 @@ internal static class Program
     private static void Main(string[] args)
     {
         AppPaths.EnsureCreated();
-        AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
-            Log.Error("Необработанная ошибка", eventArgs.ExceptionObject as Exception);
+        ConfigureFailureLogging();
+        Log.Info(
+            $"Процесс Victus Mode Switch запущен: PID={Environment.ProcessId}, " +
+            $"args={(args.Length == 0 ? "tray" : string.Join(' ', args))}");
 
+        Run(args);
+    }
+
+    private static void Run(string[] args)
+    {
         if (args.Length > 0 &&
             string.Equals(args[0], "--settings", StringComparison.OrdinalIgnoreCase) &&
             TrySignalRunningSettingsWindow())
@@ -36,6 +43,25 @@ internal static class Program
 
         ApplicationConfiguration.Initialize();
         Application.Run(new TrayApplicationContext());
+        Log.Info("Основной цикл приложения завершён");
+    }
+
+    private static void ConfigureFailureLogging()
+    {
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, eventArgs) =>
+            Log.Error("Необработанная ошибка UI-потока; приложение продолжает работу", eventArgs.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
+            Log.Error(
+                $"Необработанная ошибка CLR, завершение={eventArgs.IsTerminating}",
+                eventArgs.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
+        {
+            Log.Error("Необработанная ошибка фоновой задачи", eventArgs.Exception);
+            eventArgs.SetObserved();
+        };
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+            Log.Info($"Процесс Victus Mode Switch завершается: PID={Environment.ProcessId}");
     }
 
     private static bool TrySignalRunningSettingsWindow()

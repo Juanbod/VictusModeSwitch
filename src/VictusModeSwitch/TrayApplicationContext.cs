@@ -5,6 +5,20 @@ namespace VictusModeSwitch;
 
 internal sealed class TrayApplicationContext : ApplicationContext
 {
+    private static readonly TimeSpan[] StartupHardwareRetryDelays =
+    {
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(3),
+        TimeSpan.FromSeconds(5),
+        TimeSpan.FromSeconds(10),
+        TimeSpan.FromSeconds(20),
+        TimeSpan.FromSeconds(30),
+        TimeSpan.FromMinutes(1),
+        TimeSpan.FromMinutes(1),
+        TimeSpan.FromMinutes(1),
+        TimeSpan.FromMinutes(1)
+    };
+
     private readonly AppSettingsStore _store = new();
     private readonly ModeController _controller;
     private readonly UpdateService _updateService = new();
@@ -27,6 +41,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 9000 };
     private readonly System.Windows.Forms.Timer _settingsSignalTimer = new() { Interval = 100 };
     private readonly System.Threading.Timer _cleanupTimer;
+    private readonly System.Threading.Timer _healthTimer;
     private readonly EventWaitHandle _openSettingsEvent;
     private readonly CancellationTokenSource _shutdown = new();
     private Localizer _localizer;
@@ -36,7 +51,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private UpdateDialog? _updateDialog;
     private volatile bool _exiting;
     private bool _updateBusy;
-    private int _interactiveHardwareCommands;
+    private int _hardwareReady;
+    private int _hpSuppressionStartupScheduled;
 
     public TrayApplicationContext()
     {
@@ -47,6 +63,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
             null,
             TimeSpan.FromSeconds(30),
             Timeout.InfiniteTimeSpan);
+        _healthTimer = new(
+            _ => LogHealth(),
+            null,
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(5));
         _dispatcher.CreateControl();
         _openSettingsEvent = new EventWaitHandle(
             false,
@@ -145,6 +166,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _settingsSignalTimer.Tick -= CheckSettingsSignal;
         _settingsSignalTimer.Dispose();
         _cleanupTimer.Dispose();
+        _healthTimer.Dispose();
         _hpServiceSuppressor.Dispose();
         _shutdown.Dispose();
         _openSettingsEvent.Dispose();
@@ -228,13 +250,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private async Task ApplyModeAsync(AppMode mode, bool reapply = false, bool showToast = true)
+    private async Task<bool> ApplyModeAsync(
+        AppMode mode,
+        bool reapply = false,
+        bool showToast = true,
+        bool showError = true)
     {
-        if (!reapply)
-        {
-            Interlocked.Increment(ref _interactiveHardwareCommands);
-        }
-
         ModeToastForm? pendingToast = null;
         if (showToast && _store.Settings.ShowNotifications)
         {
@@ -248,25 +269,31 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (!result.Success)
         {
             pendingToast?.Close();
-            _notifyIcon.ShowBalloonTip(
-                3500,
-                "Victus Mode Switch",
-                result.Warnings.FirstOrDefault() ?? _localizer["ModeError"],
-                ToolTipIcon.Error);
-            return;
+            if (showError && !_exiting)
+            {
+                _notifyIcon.ShowBalloonTip(
+                    3500,
+                    "Victus Mode Switch",
+                    result.Warnings.FirstOrDefault() ?? _localizer["ModeError"],
+                    ToolTipIcon.Error);
+            }
+
+            return false;
         }
 
+        MarkHardwareReady();
         UpdateUi();
         RefreshSettingsHardwareState();
         if (pendingToast is not null && !pendingToast.IsDisposed)
         {
             pendingToast.CompleteMode(result.Mode, result.Warnings, _localizer);
         }
+
+        return true;
     }
 
-    private async Task ToggleMaxFanAsync(bool showToast = true)
+    private async Task<bool> ToggleMaxFanAsync(bool showToast = true)
     {
-        Interlocked.Increment(ref _interactiveHardwareCommands);
         var requested = !_controller.MaxFanEnabled;
         ModeToastForm? pendingToast = null;
         if (showToast && _store.Settings.ShowNotifications)
@@ -286,15 +313,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 "Victus Mode Switch",
                 result.Warnings.FirstOrDefault() ?? _localizer["FanError"],
                 ToolTipIcon.Error);
-            return;
+            return false;
         }
 
+        MarkHardwareReady();
         UpdateUi();
         RefreshSettingsHardwareState();
         if (pendingToast is not null && !pendingToast.IsDisposed)
         {
             pendingToast.CompleteMaxFan(result.Enabled, _localizer);
         }
+
+        return true;
     }
 
     private void UpdateUi()
@@ -339,26 +369,94 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _exitItem.Text = _localizer["Exit"];
     }
 
-    private async void ReapplyAfterStartup(object? sender, EventArgs eventArgs)
+    private void ReapplyAfterStartup(object? sender, EventArgs eventArgs)
     {
         _startupTimer.Stop();
-        if (Volatile.Read(ref _interactiveHardwareCommands) == 0)
+        _updateTimer.Start();
+        _ = InitializeHardwareAfterStartupAsync();
+    }
+
+    private async Task InitializeHardwareAfterStartupAsync()
+    {
+        try
         {
-            await ApplyModeAsync(_controller.CurrentMode, reapply: true, showToast: false);
+            var recovery = await _hpServiceSuppressor.SetEnabledAsync(false);
+            if (!recovery.Success)
+            {
+                Log.Warning(
+                    $"Стартовое восстановление служб HP не завершено: {recovery.Message}");
+            }
+
+            for (var attempt = 1; !_shutdown.IsCancellationRequested; attempt++)
+            {
+                if (Volatile.Read(ref _hardwareReady) != 0)
+                {
+                    Log.Info("Стартовая BIOS-синхронизация не требуется: оборудование уже ответило");
+                    return;
+                }
+
+                var mode = _controller.CurrentMode;
+                var applied = await ApplyModeAsync(
+                    mode,
+                    reapply: true,
+                    showToast: false,
+                    showError: false);
+                if (applied)
+                {
+                    Log.Info($"Стартовая BIOS-синхронизация успешна с попытки {attempt}");
+                    return;
+                }
+
+                if (attempt > StartupHardwareRetryDelays.Length)
+                {
+                    Log.Error(
+                        "BIOS не стал доступен за пять минут после входа в Windows; " +
+                        "HP-службы оставлены запущенными");
+                    return;
+                }
+
+                var delay = StartupHardwareRetryDelays[attempt - 1];
+                Log.Warning(
+                    $"BIOS ещё не готов после входа в Windows, повтор {attempt + 1} " +
+                    $"через {delay.TotalSeconds:0} с");
+                await Task.Delay(delay, _shutdown.Token);
+            }
         }
-        else
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
-            Log.Info("Стартовое повторное применение пропущено: уже получена команда пользователя");
+        }
+        catch (ObjectDisposedException) when (_exiting)
+        {
+        }
+        catch (Exception exception)
+        {
+            Log.Error("Стартовая инициализация завершилась неожиданной ошибкой", exception);
+        }
+    }
+
+    private void MarkHardwareReady()
+    {
+        if (Interlocked.Exchange(ref _hardwareReady, 1) == 0)
+        {
+            Log.Info("Аппаратный интерфейс HP готов к командам");
         }
 
-        _ = StartHpServiceSuppressionAfterStartupAsync();
-        _updateTimer.Start();
+        if (Interlocked.CompareExchange(ref _hpSuppressionStartupScheduled, 1, 0) == 0)
+        {
+            _ = StartHpServiceSuppressionAfterStartupAsync();
+        }
     }
 
     private async Task StartHpServiceSuppressionAfterStartupAsync()
     {
         try
         {
+            if (_store.Settings.SuppressHpAppServices && !_keyListener.IsWmiListenerReady)
+            {
+                Log.Info("Отключение HP-служб отложено до готовности канала кнопки HP WMI");
+                await _keyListener.WaitForWmiListenerAsync(_shutdown.Token).ConfigureAwait(false);
+            }
+
             await Task.Delay(TimeSpan.FromSeconds(5), _shutdown.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -455,7 +553,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _settingsForm = new SettingsForm(_store, _controller, page, _globalHotkey);
         _settingsForm.PreferencesChanged += OnPreferencesChanged;
-        _settingsForm.HardwareStateChanged += UpdateUi;
+        _settingsForm.HardwareStateChanged += OnSettingsHardwareStateChanged;
         _settingsForm.InstallerStarted += ExitThread;
         _settingsForm.FormClosed += (_, _) =>
         {
@@ -465,7 +563,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             }
 
             _settingsForm.PreferencesChanged -= OnPreferencesChanged;
-            _settingsForm.HardwareStateChanged -= UpdateUi;
+            _settingsForm.HardwareStateChanged -= OnSettingsHardwareStateChanged;
             _settingsForm.InstallerStarted -= ExitThread;
             _settingsForm = null;
         };
@@ -481,8 +579,21 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _ = SyncHpServiceSuppressionAsync(showError: true);
     }
 
+    private void OnSettingsHardwareStateChanged()
+    {
+        MarkHardwareReady();
+        UpdateUi();
+    }
+
     private async Task SyncHpServiceSuppressionAsync(bool showError)
     {
+        if (_store.Settings.SuppressHpAppServices &&
+            (Volatile.Read(ref _hardwareReady) == 0 || !_keyListener.IsWmiListenerReady))
+        {
+            Log.Info("Отключение HP-служб ожидает готовности BIOS и HP WMI");
+            return;
+        }
+
         HpServiceSuppressionResult result;
         try
         {
@@ -533,5 +644,26 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         Process.Start(new ProcessStartInfo(AppPaths.LogFile) { UseShellExecute = true });
+    }
+
+    private void LogHealth()
+    {
+        if (_exiting)
+        {
+            return;
+        }
+
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            Log.Info(
+                $"Процесс работает: PID={process.Id}, память={process.WorkingSet64 / 1024 / 1024} МБ, " +
+                $"BIOS ready={Volatile.Read(ref _hardwareReady) != 0}, " +
+                $"WMI ready={_keyListener.IsWmiListenerReady}");
+        }
+        catch (Exception exception)
+        {
+            Log.Error("Не удалось записать состояние процесса", exception);
+        }
     }
 }

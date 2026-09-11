@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.4.4 - 2026-09-12
+
+- Retry the saved BIOS state for up to five minutes while HP hardware interfaces finish cold-boot initialization.
+- Reconnect the diamond-button HP WMI listener with increasing delays instead of giving up after one attempt.
+- Restore services left paused by an interrupted session before hardware initialization, then defer optional HP service suppression until BIOS and WMI are ready.
+- Record UI, background-task, process-lifecycle, and periodic health diagnostics for startup failures that previously left no crash evidence.
+
 ## 2.4.3 - 2026-09-11
 
 - Accept verified diamond-key WMI events even when the low-level keyboard hook installed successfully but receives no usable scan code.
