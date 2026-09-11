@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.4.3 - 2026-09-11
+
+- Accept verified diamond-key WMI events even when the low-level keyboard hook installed successfully but receives no usable scan code.
+- Deduplicate near-simultaneous keyboard and WMI copies while preserving rapid double- and triple-press gestures.
+- Subscribe only to the verified HP OMEN key event instead of processing every HP hotkey event.
+
 ## 2.4.2 - 2026-09-11
 
 - Relaunch the tray application from Inno Setup's final run phase after installs and silent automatic updates complete.

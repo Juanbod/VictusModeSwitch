@@ -22,12 +22,11 @@ internal sealed class OmenKeyListener : IDisposable
     private const uint VkOemOmen = 0xFF;
 
     private readonly object _watcherSync = new();
+    private readonly OmenKeyDebouncer _debouncer = new();
     private ManagementEventWatcher? _watcher;
     private KeyboardHookProc? _hookProc;
     private IntPtr _hookHandle;
-    private long _lastPressTicks;
     private int _keyboardPressed;
-    private volatile bool _keyboardHookActive;
     private volatile bool _disposed;
     private readonly bool _diagnosticLogging;
 
@@ -45,7 +44,7 @@ internal sealed class OmenKeyListener : IDisposable
         var keyboardStarted = StartKeyboardHook();
         if (keyboardStarted)
         {
-            Log.Info("OMEN key: основной keyboard hook активен, HP WMI запускается в фоне как резерв");
+            Log.Info("OMEN key: keyboard hook активен, HP WMI запускается параллельно");
         }
         else
         {
@@ -75,7 +74,10 @@ internal sealed class OmenKeyListener : IDisposable
                 "\\\\.\\root\\wmi",
                 new ConnectionOptions { EnablePrivileges = true });
             scope.Connect();
-            watcher = new ManagementEventWatcher(scope, new WqlEventQuery("SELECT * FROM hpqBEvnt"));
+            watcher = new ManagementEventWatcher(
+                scope,
+                new WqlEventQuery(
+                    "SELECT * FROM hpqBEvnt WHERE EventID = 29 AND EventData = 8613"));
             watcher.EventArrived += OnEventArrived;
             watcher.Start();
 
@@ -154,7 +156,6 @@ internal sealed class OmenKeyListener : IDisposable
             _hookHandle = IntPtr.Zero;
         }
 
-        _keyboardHookActive = false;
         _hookProc = null;
     }
 
@@ -172,7 +173,6 @@ internal sealed class OmenKeyListener : IDisposable
             return false;
         }
 
-        _keyboardHookActive = true;
         Log.Info("Low-level keyboard hook запущен");
         return true;
     }
@@ -192,10 +192,7 @@ internal sealed class OmenKeyListener : IDisposable
             if (eventId == OmenEventId && eventData == OmenEventData)
             {
                 var active = eventArgs.NewEvent.Properties["Active"]?.Value;
-                if (!_keyboardHookActive)
-                {
-                    SignalOmenKey($"WMI Active={active ?? "n/a"}");
-                }
+                SignalOmenKey(OmenKeyInputSource.Wmi, $"WMI Active={active ?? "n/a"}");
             }
         }
         catch (Exception exception)
@@ -233,7 +230,9 @@ internal sealed class OmenKeyListener : IDisposable
         {
             if (Interlocked.Exchange(ref _keyboardPressed, 1) == 0)
             {
-                SignalOmenKey($"keyboard VK=0x{data.VirtualKey:X2} Scan=0x{normalizedScan:X4}");
+                SignalOmenKey(
+                    OmenKeyInputSource.Keyboard,
+                    $"keyboard VK=0x{data.VirtualKey:X2} Scan=0x{normalizedScan:X4}");
             }
 
             return new IntPtr(1);
@@ -259,11 +258,10 @@ internal sealed class OmenKeyListener : IDisposable
         return dedicatedScan && virtualKey is VkF24 or VkOmen157 or VkOemOmen;
     }
 
-    private void SignalOmenKey(string source)
+    private void SignalOmenKey(OmenKeyInputSource inputSource, string source)
     {
         var now = Environment.TickCount64;
-        var previous = Interlocked.Exchange(ref _lastPressTicks, now);
-        if (previous != 0 && now - previous < 80)
+        if (!_debouncer.TryAccept(inputSource, now))
         {
             return;
         }

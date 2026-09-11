@@ -283,6 +283,28 @@ public sealed class CoreTests
         Assert.Equal(fallback, subject.Binding);
     }
 
+    [Fact]
+    public void OmenKeyDebouncer_AcceptsWmiEvenWhenKeyboardWasPreviouslyUsed()
+    {
+        var debouncer = new OmenKeyDebouncer();
+
+        Assert.True(debouncer.TryAccept(OmenKeyInputSource.Keyboard, 1_000));
+        Assert.False(debouncer.TryAccept(OmenKeyInputSource.Wmi, 1_050));
+        Assert.True(debouncer.TryAccept(OmenKeyInputSource.Wmi, 1_120));
+        Assert.True(debouncer.TryAccept(OmenKeyInputSource.Wmi, 1_200));
+    }
+
+    [Fact]
+    public void OmenKeyDebouncer_PreservesRapidSameSourceGestures()
+    {
+        var debouncer = new OmenKeyDebouncer();
+
+        Assert.True(debouncer.TryAccept(OmenKeyInputSource.Wmi, 2_000));
+        Assert.False(debouncer.TryAccept(OmenKeyInputSource.Wmi, 2_079));
+        Assert.True(debouncer.TryAccept(OmenKeyInputSource.Wmi, 2_080));
+        Assert.True(debouncer.TryAccept(OmenKeyInputSource.Wmi, 2_160));
+    }
+
     [Theory]
     [InlineData(0, 60)]
     [InlineData(30, 30)]
